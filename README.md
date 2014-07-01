@@ -11,7 +11,7 @@ Provide a snapshot/temp write while doing operation.  When commit, snapshot are 
 ### Implementation
 
 #### Options
-* dynamicly create temporary column family that is a copy with extra key for session at run time if the column family does not exist.  This can be cumbersome if column family get changed.  Initialzation process can be added to detect if any temp table are out of date and delete and recreate them.
+* dynamicly create temporary column family that is a copy with extra key for session at run time.  Reuse if the column family already exist.  This can be cumbersome if column family get changed.  Initialzation function can be added to detect if any temp table are out of date and delete and recreate them.
 * save the temp data as binary or json and serialized each time.
 * use compact storage to allow dynamic column
 

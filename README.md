@@ -44,9 +44,10 @@ select ... where id = 3  #now it is visible via regular query
 
 
 ## Arithemtic operation
+Concurrent Increment/Decrement operation on columnfamily
 
 ### Implementation:
-* Each Arithemtic operation insert a new column containi the value.
+* Each Arithemtic operation insert a new column containing the value.
 * To determine the value, must sum all columns for the row.
 * Periodic merge of rows can be done to improve performance.
 * Do not mix other field that are not necessary for arithemtic into this cf, eg. home address, name...
@@ -70,34 +71,34 @@ Arithemtic Functions:
 ###Example
 ```
 Current balance of 30 			
-seller = "seller"
+cf = "seller_balance"
 id = ('lunex', 123) #for example, id can be a tuple
-incre(seller, id, 5)
-incre(seller, id, 10)			
-incre(seller, id, 15) #balance = [5, 10, 15]			
-sum(seller, id) = 30
-incre(seller, id, 3) #balance = [5, 10, 15, 3]	
-sum(seller, id) = 33
-merge(seller, id) = 33 # [33]
+incre(cf, id, 5)
+incre(cf, id, 10)			
+incre(cf, id, 15) #balance = [5, 10, 15]			
+sum(cf, id) = 30
+incre(cf, id, 3) #balance = [5, 10, 15, 3]	
+sum(cf, id) = 33
+merge(cf, id) = 33 # [33]
 
 ```
 Arithmetic with Transaction
 ```
 ctx = Context.start()
 id = 3
-bal = util.sum(seller, id) #let's say balance is 10
-ctx.incre(seller, id, 5) #visible only by context seller.balance = [10] seller_temp.balance = [5]
-util.incre(seller, id, 1) #seller.balance = [10, 1] seller_temp.balance = [5]
-utils.sum(seller, id) #15
-ctx.sum(seller, id) #20 , include the seller_temp
+bal = sum(cf, id) #let's say balance is 10
+ctx.incre(cf, id, 5) #visible only by context seller_balance = [10] seller_balance_temp = [5]
+incre(cf, id, 1) #seller_balance = [10, 1] seller_balance_temp = [5]
+sum(cf, id) #15
+ctx.sum(cf, id) #20 , include the seller_temp
 ctx.commit() #ctx.merge get called.
-utils.sum(seller, id) #20
+sum(cf, id) #20
 
 #let's do a rollback
 ctx = Context.start()
-ctx.incre(seller, 5) #visible only by context seller.balance = [20] seller_temp.balance = [5]
+ctx.incre(cf, 5) #visible only by context seller.balance = [20] seller_temp.balance = [5]
 ctx.rollback() #ctx.close(), all temp item with ctx is removed
-utils.sum(seller, id) #20
+sum(cf, id) #20
 ```
 
 

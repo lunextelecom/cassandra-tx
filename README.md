@@ -43,11 +43,11 @@ select ... where id = 3  #now it is visible via regular query
 ```
 
 
-## Arithemtic operation
+## Arithmetic operation
 Concurrent Increment/Decrement operation on columnfamily
 
 ### Implementation:
-* Each Arithemtic operation insert a new column containing the value.
+* Each Arithmetic operation insert a new column containing the value.
 * To determine the value, must sum all columns for the row.
 * Periodic merge of rows can be done to improve performance.
 * Do not mix other field that are not necessary for arithemtic into this cf, eg. home address, name...

@@ -4,16 +4,18 @@ cassandra-tx
 Provide transaction (atomicity, isolation), concurrent arithmetic functionality for cassandra.  This is standalone java library.
 * non locking/blocking arithemtic operation increment, decrement on numeric column of a wide column family
 * transaction scope for controlling columnfamily that need transaction (atomicity, isolation)
+* Do not implement any isolation level
+
 
 ## Transaction
-Provide a snapshot/temp write while doing operation.  When commit, snapshot are copy to original.  When rollback, snapshot/temp tables are discarded.  snapshot/temp are readable by same session
+* Provide a snapshot/temp write while doing operation.  When commit, snapshot are copy to original.  When rollback, snapshot/temp tables are discarded.  snapshot/temp are readable by same session
+* 
 
 ### Implementation
-
-#### Options
 * dynamicly create temporary column family that is a copy with extra key for session at run time.  Reuse if the column family already exist.  This can be cumbersome if column family get changed.  Initialzation function can be added to detect if any temp table are out of date and delete and recreate them.
-* save the temp data as binary or json and serialized each time.
-* use compact storage to allow dynamic column
+* Name of temp table : table_{checksum}, checksum is generated(using any hash algorithm) from columns name ( maximun 8 character)
+* add extra columns to verify record is deleted
+
 
 ### Example
 ```
@@ -53,12 +55,15 @@ Concurrent Increment/Decrement operation on columnfamily
 * Do not mix other field that are not necessary for arithemtic into this cf, eg. home address, name...
 * The column family use wide row for the arithemtic field 
 ```
-CREATE TABLE seller_balance (
+CCREATE TABLE seller_balance (
 	id bigint,
-	tid timeuuid,
+	updateid timeuuid,
 	amount decimal,
+	ismerged boolean,
 	PRIMARY KEY(id, updateid)
 )
+
+
 Require use of library to abstract incre/decre, merge, sum
 
 Arithemtic Functions:

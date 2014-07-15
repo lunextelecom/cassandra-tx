@@ -9,7 +9,6 @@ Provide transaction (atomicity, isolation), concurrent arithmetic functionality 
 
 ## Transaction
 * Provide a snapshot/temp write while doing operation.  When commit, snapshot are copy to original.  When rollback, snapshot/temp tables are discarded.  snapshot/temp are readable by same session
-* 
 
 ### Implementation
 * dynamicly create temporary column family that is a copy with extra key for session at run time.  Reuse if the column family already exist.  This can be cumbersome if column family get changed.  Initialzation function can be added to detect if any temp table are out of date and delete and recreate them.

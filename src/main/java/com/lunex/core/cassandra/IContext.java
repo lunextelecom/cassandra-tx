@@ -1,10 +1,12 @@
 package com.lunex.core.cassandra;
 
-import com.datastax.driver.core.ResultSet;
+import java.util.List;
+
+import com.datastax.driver.core.Row;
 
 public interface IContext {
 
-	ResultSet execute(String sql, Object... arguments);
+	List<Row> execute(String sql, Object... arguments);
 	void commit();
 	void rollback();
 	void merge(String cf);

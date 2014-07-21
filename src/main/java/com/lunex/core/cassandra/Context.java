@@ -2,8 +2,10 @@ package com.lunex.core.cassandra;
 
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -24,8 +26,8 @@ import com.datastax.driver.core.DataType;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.TableMetadata;
-import com.google.common.base.Strings;
 import com.lunex.core.utils.Configuration;
+import com.lunex.core.utils.RowKey;
 import com.lunex.core.utils.StatementVO;
 
 public class Context implements IContext {
@@ -190,12 +192,12 @@ public class Context implements IContext {
 		return ContextFactory.start(contextId);
 	}
 
-	public ResultSet execute(String sql, Object... args) {
+	public List<Row> execute(String sql, Object... args) {
 		//1. parse sql to find:
 		//- cf
 		//- select, update, insert, delete type
 		//- where condition
-		ResultSet resultSet = null;
+		List<Row> res = null;
 		try {
 			StringBuilder sqlTX = new StringBuilder();
 			StatementVO stmVO = null;
@@ -207,10 +209,11 @@ public class Context implements IContext {
 			CCJSqlParserManager parserManager = new CCJSqlParserManager();
 			Statement stm = parserManager.parse(new StringReader(sql));
 			if (stm instanceof Select) {
-				String tableName = ((PlainSelect)((Select) stm).getSelectBody()).getFromItem().toString();
-				tableName = tableName.replaceFirst(Configuration.getKeyspace()+".", "");
+				String tableName = ((PlainSelect)((Select) stm).getSelectBody()).getFromItem().toString().toLowerCase();
+				tableName = tableName.replaceFirst(Configuration.getKeyspace().toLowerCase()+".", "");
 				System.out.println(tableName);
 				setCfTxChanged.add(ContextFactory.getMapOrgTX().get(tableName));
+				executesSelectStatement(ctxId, sql, tableName, (Select) stm, args);
 
 			} else if (stm instanceof Update) {
 				Update detailStm =  (Update) stm;
@@ -236,16 +239,54 @@ public class Context implements IContext {
 		} catch (Exception e) {
 			throw new UnsupportedOperationException();
 		}
-		return resultSet;
+		return res;
 		
 	}
 	
-	private ResultSet executesSelectStatement(String contextId, String sql, String tableName, Select info, Object... args){
+	private List<Row> executesSelectStatement(String contextId, String sql, String tableName, Select info, Object... args){
+		ResultSet results = client.getSession().execute(sql, args);
+		List<Row> lstOrg = new ArrayList<Row>();
+		if(results != null){
+			while(!results.isExhausted()){
+				lstOrg.add(results.one());
+			}
+		}
+		
+		//
+		TableMetadata def = ContextFactory.getMapTableMetadata().get(tableName);
+		//
+		
 		String txName = ContextFactory.getMapOrgTX().get(tableName);
-		sql = sql.toLowerCase();
-		sql = sql.replaceFirst(tableName, txName);
-		final ResultSet results = client.getSession().execute(sql, args);
-		return results;
+		StringBuilder txSql = new StringBuilder(sql.toString().replaceFirst(tableName, txName)); 
+		txSql.append(" and cstx_id_ = ?");
+		List<Object> params = new ArrayList<Object>();
+		for(int i = 0; i < args.length; i++){
+			params.add(args[i]);
+		}
+		params.add(UUID.fromString(contextId));
+		results = client.getSession().execute(txSql.toString(), params.toArray());
+		Map<RowKey, Row> mapRow = new HashMap<RowKey, Row>();
+		if(results != null){
+			while(!results.isExhausted()){
+				Row row = results.one();
+				RowKey tmp = new RowKey();
+				tmp.setRow(row);
+				tmp.setKeys(def.getPrimaryKey());
+				mapRow.put(tmp,row);
+			}
+		}
+		List<Row> res = new ArrayList<Row>(); 
+		for (Row child : lstOrg) {
+			RowKey tmp = new RowKey();
+			tmp.setRow(child);
+			tmp.setKeys(def.getPrimaryKey());
+			if(mapRow.containsKey(tmp)){
+				res.add(mapRow.get(tmp));
+			}else{
+				res.add(child);
+			}
+		}
+		return res;
 	}
 	
 	private void executeDeleteStatement(String contextId, String sql, Delete info, Object... args){
@@ -265,8 +306,8 @@ public class Context implements IContext {
 					params = new ArrayList<Object>();
 					insertSql = new StringBuilder();
 					valueSql = new StringBuilder();
-					insertSql.append("insert into " + wholeName + "(cstx_id_, cstx_updateid_, cstx_deleted_");
-					valueSql.append(" values(?,now(),true");
+					insertSql.append("insert into " + wholeName + "(cstx_id_, cstx_deleted_");
+					valueSql.append(" values(?, true");
 					params.add(UUID.fromString(contextId));
 					for (ColumnMetadata col : def.getColumns()) {
 						insertSql.append("," + col.getName());
@@ -285,11 +326,11 @@ public class Context implements IContext {
 	private void executeInsertStatement(String contextId, Insert info, Object... args){
 		StringBuilder insertSql = new StringBuilder();
 		List<Object> params = new ArrayList<Object>();
-		insertSql.append("insert into " + info.getTable().getSchemaName() + "." + ContextFactory.getMapOrgTX().get(info.getTable().getName())+ "(cstx_id_, cstx_updateid_");
+		insertSql.append("insert into " + info.getTable().getSchemaName() + "." + ContextFactory.getMapOrgTX().get(info.getTable().getName())+ "(cstx_id_");
 		for (Object obj : info.getColumns()) {
 			insertSql.append("," + ((Column)obj).getColumnName());
 		}
-		insertSql.append(") values(?,now()");
+		insertSql.append(") values(?");
 		params.add(UUID.fromString(contextId) );
 		List<Object> listValue =  ((ExpressionList) info.getItemsList()).getExpressions();
 		int i = 0;

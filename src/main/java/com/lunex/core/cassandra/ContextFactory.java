@@ -96,7 +96,7 @@ public class ContextFactory {
 						int beginIndex = cql.indexOf("PRIMARY KEY (");
 						int endIndex = cql.indexOf (")",beginIndex);
 						String oldPri = cql.substring(beginIndex, endIndex+1);
-						StringBuilder newPri = new StringBuilder("cstx_id_ uuid, cstx_updateid_ timeuuid, cstx_deleted_ boolean, PRIMARY KEY (cstx_id_, cstx_updateid_");
+						StringBuilder newPri = new StringBuilder("cstx_id_ uuid, cstx_deleted_ boolean, PRIMARY KEY (cstx_id_");
 						for (ColumnMetadata colKey : child.getPrimaryKey()) {
 							newPri.append("," + colKey.getName());
 						}

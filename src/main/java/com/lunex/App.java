@@ -1,5 +1,8 @@
 package com.lunex;
 
+import java.util.List;
+
+import com.datastax.driver.core.Row;
 import com.lunex.core.cassandra.Context;
 import com.lunex.core.utils.Configuration;
 
@@ -23,16 +26,21 @@ public class App
 		String sql = "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
     	System.out.println(sql);
     	Context ctx = (Context) Context.start();
-    	ctx.execute(sql, "baolvt", "Bao", "Le", 24);
+    	ctx.execute(sql, "baolvt", "Bao", "Le", 25);
+    	//select
+    	sql = "select * from test_keyspace.customer where username=?";
+    	List<Row> rows = ctx.execute(sql, "baolvt");
+    	System.out.println(sql);
+    	
     	ctx.commit();
 	}
 
 	private static void testSelect() {
 		String sql = "select * from test_keyspace.customer where username=?";
     	System.out.println(sql);
-//    	Context ctx = (Context) Context.start();
-//    	ctx.execute(sql, "baolvt");
-//    	ctx.commit();
+    	Context ctx = (Context) Context.start();
+    	ctx.execute(sql, "baolvt");
+    	ctx.commit();
 	}
 
 	

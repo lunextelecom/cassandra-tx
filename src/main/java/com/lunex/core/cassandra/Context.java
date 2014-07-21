@@ -9,10 +9,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import net.sf.jsqlparser.expression.JdbcParameter;
-import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
 import net.sf.jsqlparser.parser.CCJSqlParserManager;
-import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.insert.Insert;
@@ -24,6 +21,7 @@ import com.datastax.driver.core.ColumnMetadata;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.TableMetadata;
+import com.google.common.base.Strings;
 import com.lunex.core.utils.Configuration;
 import com.lunex.core.utils.RowKey;
 
@@ -169,7 +167,7 @@ public class Context implements IContext {
 				String tableName = ((PlainSelect)((Select) stm).getSelectBody()).getFromItem().toString().toLowerCase();
 				tableName = tableName.replaceFirst(Configuration.getKeyspace().toLowerCase()+".", "");
 				setCfTxChanged.add(ContextFactory.getMapOrgTX().get(tableName));
-				executesSelectStatement(ctxId, sql, tableName, args);
+				res = executesSelectStatement(ctxId, sql, tableName, args);
 
 			} else if (stm instanceof Update) {
 				String tableName = ((Update) stm).getTable().getName();
@@ -197,9 +195,12 @@ public class Context implements IContext {
 			Object... args) {
 		String orgName = info.getTable().getName();
 		String txName = ContextFactory.getMapOrgTX().get(orgName);
-		String txWholeName = info.getTable().getSchemaName() + "." + txName;
+		String txWholeName = txName;
+		if(!Strings.isNullOrEmpty(info.getTable().getSchemaName())){
+			txWholeName = info.getTable().getSchemaName() + "." + txName;
+		}
 		String selectSql = info.toString().toLowerCase();
-		selectSql = selectSql.replaceFirst("update " + info.getTable().getWholeTableName(), "select * from " + orgName);
+		selectSql = selectSql.replaceFirst("update " + info.getTable().getWholeTableName(), "select * from " + info.getTable().getWholeTableName());
 		List<Row> lstRow = executesSelectStatement(ctxId, selectSql, orgName, args);
 		//insert into tx table
 		if(lstRow != null && !lstRow.isEmpty()){
@@ -229,7 +230,7 @@ public class Context implements IContext {
 			
 		//
 		//update tx table
-		StringBuilder updateSql = new StringBuilder(sql.replaceFirst(info.getTable().getWholeTableName(), txName) + " and cstx_id_ = ?");
+		StringBuilder updateSql = new StringBuilder(sql.replaceFirst(info.getTable().getWholeTableName(), txWholeName) + " and cstx_id_ = ?");
 		List<Object> params = new ArrayList<Object>();
 		for(int i = 0; i < args.length; i++){
 			params.add(args[i]);
@@ -290,7 +291,10 @@ public class Context implements IContext {
 		final ResultSet results = client.getSession().execute(sql, args);
 		if(results != null){
 			String txName = ContextFactory.getMapOrgTX().get(info.getTable().getName());
-			String txWholeName = info.getTable().getSchemaName() + "." + txName;
+			String txWholeName = txName;
+			if(!Strings.isNullOrEmpty(info.getTable().getSchemaName())){
+				txWholeName = info.getTable().getSchemaName() + "." + txName;
+			}
 			TableMetadata def = ContextFactory.getMapTableMetadata().get(info.getTable().getName());
 			List<Object> params = new ArrayList<Object>();
 			StringBuilder insertSql = new StringBuilder();
@@ -304,7 +308,7 @@ public class Context implements IContext {
 					insertSql.append("insert into " + txWholeName + "(cstx_id_, cstx_deleted_");
 					valueSql.append(" values(?, true");
 					params.add(UUID.fromString(contextId));
-					for (ColumnMetadata col : def.getColumns()) {
+					for (ColumnMetadata col : def.getPrimaryKey()) {
 						insertSql.append("," + col.getName());
 						valueSql.append(",?");
 						params.add(RowKey.getValue(row, col.getType().getName().toString(), col.getName()));
@@ -319,31 +323,19 @@ public class Context implements IContext {
 	}
 	
 	private void executeInsertStatement(String contextId, Insert info, Object... args){
-		StringBuilder insertSql = new StringBuilder();
+		//
+		String orgName = info.getTable().getName();
+		String txName = ContextFactory.getMapOrgTX().get(orgName);
+		info.getTable().setName(txName);
+		info.getColumns().add("cstx_id_");
+		
 		List<Object> params = new ArrayList<Object>();
-		insertSql.append("insert into " + info.getTable().getSchemaName() + "." + ContextFactory.getMapOrgTX().get(info.getTable().getName())+ "(cstx_id_");
-		for (Object obj : info.getColumns()) {
-			insertSql.append("," + ((Column)obj).getColumnName());
+		for(int i = 0; i < args.length; i++){
+			params.add(args[i]);
 		}
-		insertSql.append(") values(?");
-		params.add(UUID.fromString(contextId) );
-		List<Object> listValue =  ((ExpressionList) info.getItemsList()).getExpressions();
-		int i = 0;
-		for (Object obj : listValue) {
-			if(obj instanceof JdbcParameter){
-				params.add(args[i]);
-				i++;
-			}else{
-				if(obj instanceof String){
-					String val = obj.toString();
-					params.add(val);
-				}else{
-					params.add(obj.toString());
-				}
-			}
-			insertSql.append(",?");
-		}
-		insertSql.append(")");
+		params.add(UUID.fromString(ctxId));
+		StringBuilder insertSql = new StringBuilder(info.toString());
+		insertSql = insertSql.replace(insertSql.lastIndexOf(")"), insertSql.length(), ",?)");
 		client.getSession().execute(insertSql.toString(), params.toArray());
 	}
 	//get,set

@@ -30,7 +30,7 @@ public class SQLParser {
     }
     public SQLParser() throws JSQLParserException
     {
-        String statement = "Update db.table1 set b = 1 where id =   now(4) and   dsfd=              50 and ab ='df         ds'";
+        String statement = "insert into test_keyspace.customer(username, firstname, lastname, age) values('trinhtran',?,?,24)";
         Statement stm = parserManager.parse(new StringReader(statement));
         if (stm instanceof Select) {
 			System.out.println("select");
@@ -52,6 +52,11 @@ public class SQLParser {
 			
 		}else if(stm instanceof Insert){
 			System.out.println("insert");
+			Insert info = ((Insert) stm);
+			info.getColumns().add("ctsx_is");
+			System.out.println(info.toString());
+			String tableName = ((Insert) stm).getTable().getName();
+			
 			
 		}
         

@@ -14,8 +14,8 @@ public class App
 {
     public static void main( String[] args ){
     	Configuration.loadConfig("localhost", 9042,"test_keyspace");
-    	testUpdate();
-//    	testInsert();
+//    	testUpdate();
+    	testInsert();
 //    	testSelect();
     	/*String sql = "delete from test_keyspace.customer where username = ?";
     	Context ctx = (Context) Context.start();
@@ -27,10 +27,10 @@ public class App
 		String sql = "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
     	System.out.println(sql);
     	Context ctx = (Context) Context.start();
-    	ctx.execute(sql, "baolvt", "Bao", "Le", 25);
+    	ctx.execute(sql, "trinhtran", "Trinh", "Tran", 25);
     	//select
     	sql = "select * from test_keyspace.customer where username=?";
-    	List<Row> rows = ctx.execute(sql, "baolvt");
+    	List<Row> rows = ctx.execute(sql, "trinhtran");
     	System.out.println(sql);
     	
     	ctx.commit();

@@ -22,20 +22,30 @@ public class SQLParser {
 
 	static CCJSqlParserManager parserManager = new CCJSqlParserManager();
 
+	public static void main(String[] args) throws JSQLParserException
+    {
+         
+    	 new SQLParser();
+
+    }
     public SQLParser() throws JSQLParserException
     {
-        String statement = "Update db.table1 set a = now(), b = 1 where id = 10 and ab ='dfds'";
+        String statement = "Update db.table1 set b = 1 where id =   now(4) and   dsfd=              50 and ab ='df         ds'";
         Statement stm = parserManager.parse(new StringReader(statement));
         if (stm instanceof Select) {
 			System.out.println("select");
 			
 		}else if(stm instanceof Update){
 			Update detailStm =  (Update) stm; 
-			Table t = detailStm.getTable();
-			String whereSql = detailStm.getWhere().toString();
 			
-			System.out.println(t.getWholeTableName());
-			System.out.println(whereSql);
+			Table t = detailStm.getTable();
+			String txName = "txTable";
+			String tmpSql = detailStm.toString().toLowerCase();
+			tmpSql = tmpSql.replaceFirst("update " + t.getWholeTableName(), "select * from " + txName);
+			String whereSql = detailStm.getWhere().toString();
+			statement = statement.replaceFirst(t.getWholeTableName(), txName) + " and cstx_id_ = ?";
+			System.out.println(tmpSql);
+			System.out.println(statement);
 			
 		}else if(stm instanceof Delete){
 			System.out.println("delete");
@@ -87,13 +97,6 @@ public class SQLParser {
 			e.printStackTrace();
 		}
     }
-    public static void main(String[] args) throws JSQLParserException
-    {
-         
-         String sql = " delete      from customer whree fd=dfdsf".toLowerCase();
- 		sql = sql.replaceFirst("delete ", "select * ");
- 		System.out.println(sql);
-
-    }
+    
     
 }

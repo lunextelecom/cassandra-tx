@@ -13,7 +13,6 @@ import net.sf.jsqlparser.expression.JdbcParameter;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
 import net.sf.jsqlparser.parser.CCJSqlParserManager;
 import net.sf.jsqlparser.schema.Column;
-import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.insert.Insert;
@@ -22,13 +21,11 @@ import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.update.Update;
 
 import com.datastax.driver.core.ColumnMetadata;
-import com.datastax.driver.core.DataType;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.TableMetadata;
 import com.lunex.core.utils.Configuration;
 import com.lunex.core.utils.RowKey;
-import com.lunex.core.utils.StatementVO;
 
 public class Context implements IContext {
 
@@ -58,7 +55,7 @@ public class Context implements IContext {
 						if(isDeleted){
 							commitDeleteStatement(cftx, row);
 						}else{
-							commitUpdateStatement(cftx, row);
+							commitOthersStatement(cftx, row);
 						}
 					}
 				}
@@ -69,7 +66,7 @@ public class Context implements IContext {
 		
 	}
 
-	private void commitUpdateStatement(String cftx, final Row row) {
+	private void commitOthersStatement(String cftx, final Row row) {
 		StringBuilder statement;
 		StringBuilder valueSql;
 		String originalCF = cftx.substring(0, cftx.length()-(Configuration.CHECKSUM_LENGTH+1));
@@ -93,7 +90,7 @@ public class Context implements IContext {
 					statement.append("," + colName);
 					valueSql.append(",?");
 				}
-				addParams(row, params, colType, colName);
+				params.add(RowKey.getValue(row, colType, colName));
 			}
 			statement.append(")");
 			valueSql.append(")");
@@ -123,7 +120,7 @@ public class Context implements IContext {
 			}else{
 				statement.append("," + colName + " = ?");
 			}
-			addParams(row, params, colType, colName);
+			params.add(RowKey.getValue(row, colType, colName));
 		}
 		try {
 			client.getSession().execute(statement.toString(), params.toArray());
@@ -132,35 +129,6 @@ public class Context implements IContext {
 		}
 	}
 
-	private void addParams(final Row row, List<Object> params, String colType,
-			String colName) {
-		if(colType.equals(DataType.ascii().getName().toString())
-				|| colType.equals(DataType.text().getName().toString())
-				|| colType.equals(DataType.varchar().getName().toString())
-				){
-			params.add(row.getString(colName));
-		}else if(colType.equals(DataType.uuid().getName().toString()) || colType.equals(DataType.timeuuid().getName().toString())){
-			params.add(row.getUUID(colName));
-		}else if(colType.equals(DataType.timestamp().getName().toString())){
-			params.add(row.getDate(colName));
-		}else if(colType.equals(DataType.cboolean().getName().toString())){
-			params.add(row.getBool(colName));
-		}else if(colType.equals(DataType.blob().getName().toString())){
-			params.add(row.getBytes(colName));
-		}else if(colType.equals(DataType.cdouble().getName().toString())){
-			params.add(row.getDouble(colName));
-		}else if(colType.equals(DataType.cfloat().getName().toString())){
-			params.add(row.getFloat(colName));
-		}else if(colType.equals(DataType.cint().getName().toString())){
-			params.add(row.getInt(colName));
-		}else if(colType.equals(DataType.decimal().getName().toString())){
-			params.add(row.getDecimal(colName));
-		}else if(colType.equals(DataType.inet().getName().toString())){
-			params.add(row.getInet(colName));
-		}else if(colType.equals(DataType.counter().getName().toString()) || colType.equals(DataType.bigint().getName().toString())){
-			params.add(row.getLong(colName));
-		}
-	}
 	
 	public void rollback() {
 		if(setCfTxChanged != null && !setCfTxChanged.isEmpty()){
@@ -189,47 +157,29 @@ public class Context implements IContext {
 	}
 	
 	public static IContext getContext(String contextId) {
-		return ContextFactory.start(contextId);
+		return ContextFactory.getContext(contextId);
 	}
 
 	public List<Row> execute(String sql, Object... args) {
-		//1. parse sql to find:
-		//- cf
-		//- select, update, insert, delete type
-		//- where condition
 		List<Row> res = null;
 		try {
-			StringBuilder sqlTX = new StringBuilder();
-			StatementVO stmVO = null;
-			//"update test_keyspace.customer set firstname ='quang duy' where username='duynq'"
-			//1. check delete in customer_tx
-			//
-			//->"update test_keyspace.customer_tx set firstname ='quang duy' where cstx_id_ = uuid and username='duynq'"
-			
 			CCJSqlParserManager parserManager = new CCJSqlParserManager();
 			Statement stm = parserManager.parse(new StringReader(sql));
 			if (stm instanceof Select) {
 				String tableName = ((PlainSelect)((Select) stm).getSelectBody()).getFromItem().toString().toLowerCase();
 				tableName = tableName.replaceFirst(Configuration.getKeyspace().toLowerCase()+".", "");
-				System.out.println(tableName);
 				setCfTxChanged.add(ContextFactory.getMapOrgTX().get(tableName));
-				executesSelectStatement(ctxId, sql, tableName, (Select) stm, args);
+				executesSelectStatement(ctxId, sql, tableName, args);
 
 			} else if (stm instanceof Update) {
-				Update detailStm =  (Update) stm;
-				//1. generate select statement
-				//2. insert into cf tx
-				//3. update ct tx
-				Table t = detailStm.getTable();
-				sqlTX.append("update " + ContextFactory.getMapOrgTX().get(t.getName()) + " set " );
-				System.out.println(((Update) stm).getTable());
-				System.out.println(((Update) stm).getTable().getName());
+				String tableName = ((Update) stm).getTable().getName();
+				setCfTxChanged.add(ContextFactory.getMapOrgTX().get(tableName));
+				executeUpdateStatement(sql, (Update) stm, args);
 
 			} else if (stm instanceof Delete) {
 				String tableName = ((Delete) stm).getTable().getName();
 				setCfTxChanged.add(ContextFactory.getMapOrgTX().get(tableName));
 				executeDeleteStatement(ctxId, sql, (Delete) stm, args);
-				System.out.println("delete");
 
 			} else if (stm instanceof Insert) {
 				String tableName = ((Insert) stm).getTable().getName();
@@ -242,8 +192,53 @@ public class Context implements IContext {
 		return res;
 		
 	}
+
+	private void executeUpdateStatement(String sql, Update info, 
+			Object... args) {
+		String orgName = info.getTable().getName();
+		String txName = ContextFactory.getMapOrgTX().get(orgName);
+		String txWholeName = info.getTable().getSchemaName() + "." + txName;
+		String selectSql = info.toString().toLowerCase();
+		selectSql = selectSql.replaceFirst("update " + info.getTable().getWholeTableName(), "select * from " + orgName);
+		List<Row> lstRow = executesSelectStatement(ctxId, selectSql, orgName, args);
+		//insert into tx table
+		if(lstRow != null && !lstRow.isEmpty()){
+			List<Object> params = new ArrayList<Object>();
+			StringBuilder insertSql = new StringBuilder();
+			StringBuilder valueSql = new StringBuilder();
+			TableMetadata def = ContextFactory.getMapTableMetadata().get(orgName);
+			for (Row row : lstRow) {
+				
+				params = new ArrayList<Object>();
+				insertSql = new StringBuilder();
+				valueSql = new StringBuilder();
+				insertSql.append("insert into " + txWholeName + "(cstx_id_");
+				valueSql.append(" values(?");
+				params.add(UUID.fromString(ctxId));
+				for (ColumnMetadata col : def.getColumns()) {
+					insertSql.append("," + col.getName());
+					valueSql.append(",?");
+					params.add(RowKey.getValue(row, col.getType().getName().toString(), col.getName()));
+				}
+				insertSql.append(")");
+				valueSql.append(")");
+				insertSql.append(valueSql);
+				client.getSession().execute(insertSql.toString(), params.toArray());
+			}
+		}
+			
+		//
+		//update tx table
+		StringBuilder updateSql = new StringBuilder(sql.replaceFirst(info.getTable().getWholeTableName(), txName) + " and cstx_id_ = ?");
+		List<Object> params = new ArrayList<Object>();
+		for(int i = 0; i < args.length; i++){
+			params.add(args[i]);
+		}
+		params.add(UUID.fromString(ctxId));
+		client.getSession().execute(updateSql.toString(), params.toArray());
+	}
 	
-	private List<Row> executesSelectStatement(String contextId, String sql, String tableName, Select info, Object... args){
+	private List<Row> executesSelectStatement(String contextId, String sql, String tableName, Object... args){
 		ResultSet results = client.getSession().execute(sql, args);
 		List<Row> lstOrg = new ArrayList<Row>();
 		if(results != null){
@@ -295,7 +290,7 @@ public class Context implements IContext {
 		final ResultSet results = client.getSession().execute(sql, args);
 		if(results != null){
 			String txName = ContextFactory.getMapOrgTX().get(info.getTable().getName());
-			String wholeName = info.getTable().getSchemaName() + "." + txName;
+			String txWholeName = info.getTable().getSchemaName() + "." + txName;
 			TableMetadata def = ContextFactory.getMapTableMetadata().get(info.getTable().getName());
 			List<Object> params = new ArrayList<Object>();
 			StringBuilder insertSql = new StringBuilder();
@@ -306,13 +301,13 @@ public class Context implements IContext {
 					params = new ArrayList<Object>();
 					insertSql = new StringBuilder();
 					valueSql = new StringBuilder();
-					insertSql.append("insert into " + wholeName + "(cstx_id_, cstx_deleted_");
+					insertSql.append("insert into " + txWholeName + "(cstx_id_, cstx_deleted_");
 					valueSql.append(" values(?, true");
 					params.add(UUID.fromString(contextId));
 					for (ColumnMetadata col : def.getColumns()) {
 						insertSql.append("," + col.getName());
 						valueSql.append(",?");
-						addParams(row, params, col.getType().getName().toString(), col.getName());
+						params.add(RowKey.getValue(row, col.getType().getName().toString(), col.getName()));
 					}
 					insertSql.append(")");
 					valueSql.append(")");

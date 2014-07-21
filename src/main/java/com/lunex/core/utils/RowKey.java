@@ -51,7 +51,7 @@ public class RowKey {
 		return 1;
     }
 	
-	private Object getValue(final Row row, String colType,
+	public static Object getValue(final Row row, String colType,
 			String colName) {
 		if(colType.equals(DataType.ascii().getName().toString())
 				|| colType.equals(DataType.text().getName().toString())

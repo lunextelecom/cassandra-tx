@@ -55,11 +55,12 @@ Concurrent Increment/Decrement operation on columnfamily
 * The column family use wide row for the arithemtic field 
 ```
 CCREATE TABLE seller_balance (
+	company text,
 	id bigint,
 	updateid timeuuid,
 	amount decimal,
 	ismerged boolean,
-	PRIMARY KEY(id, updateid)
+	PRIMARY KEY((company,id), updateid)
 )
 
 

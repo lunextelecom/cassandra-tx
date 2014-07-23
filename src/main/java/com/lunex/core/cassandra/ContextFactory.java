@@ -1,15 +1,20 @@
 package com.lunex.core.cassandra;
 
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.ColumnMetadata;
 import com.datastax.driver.core.KeyspaceMetadata;
 import com.datastax.driver.core.Metadata;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.TableMetadata;
 import com.google.common.base.Strings;
@@ -19,7 +24,7 @@ public class ContextFactory {
 	
 	private static ContextFactory instance;
 	
-	private static Map<String, IContext> currentCTX = new HashMap<String, IContext>();
+//	private static Map<String, IContext> currentCTX = new HashMap<String, IContext>();
 	
 	/** Cassandra Cluster. */
 	private Cluster cluster;
@@ -31,9 +36,9 @@ public class ContextFactory {
 	
 	private static HashMap<String, TableMetadata> mapTableMetadata = new HashMap<String, TableMetadata>();
 
-	public static Map<String, IContext> getCurrentCTX() {
-		return currentCTX;
-	}
+//	public static Map<String, IContext> getCurrentCTX() {
+//		return currentCTX;
+//	}
 
 	public static HashMap<String, String> getMapOrgTX() {
 		return mapOrgTX;
@@ -183,7 +188,6 @@ public class ContextFactory {
 			ctx.setClient(client);
 			String ctxId = UUID.randomUUID().toString();
 			ctx.setCtxId(ctxId);
-			currentCTX.put(ctxId, ctx);
 		} catch (Exception e) {
 			throw new UnsupportedOperationException("Can't connect node: " + Configuration.getNode() + " port :" + Configuration.getPort() + " keyspace:" + Configuration.getKeyspace());
 		}
@@ -194,15 +198,15 @@ public class ContextFactory {
 		if(!Strings.isNullOrEmpty(contextId)){
 			Context ctx = new Context();
 			try {
-				contextId = generateContextIdFromString(contextId);
-				if(currentCTX.containsKey(contextId)){
-					throw new UnsupportedOperationException("contextId :" + contextId + " is existed");
-				}
 				ContextFactory client = ContextFactory.getInstance();
 				client.connect(Configuration.getNode(), Configuration.getPort());
+				HashSet<String> currentCTX = getCurrentContext(client);
+				contextId = generateContextIdFromString(contextId);
+				if(currentCTX.contains(contextId)){
+					throw new UnsupportedOperationException("contextId :" + contextId + " is existed");
+				}
 				ctx.setClient(client);
 				ctx.setCtxId(contextId);
-				currentCTX.put(contextId, ctx);
 			} catch (Exception e) {
 				throw new UnsupportedOperationException("Can't connect node: " + Configuration.getNode() + " port :" + Configuration.getPort() + " keyspace:" + Configuration.getKeyspace());
 			}
@@ -214,9 +218,15 @@ public class ContextFactory {
 
 	public static IContext getContext(String contextId){
 		try {
+			ContextFactory client = ContextFactory.getInstance();
+			client.connect(Configuration.getNode(), Configuration.getPort());
 			contextId = generateContextIdFromString(contextId);
-			if(currentCTX.containsKey(contextId)){
-				return currentCTX.get(contextId);
+			HashSet<String> currentCTX = getCurrentContext(client);
+			if(currentCTX.contains(contextId)){
+				Context ctx = new Context();
+				ctx.setClient(client);
+				ctx.setCtxId(contextId);
+				return ctx;
 			}
 		} catch (Exception e) {
 			throw new UnsupportedOperationException("contextId :" + contextId + " does not exist");
@@ -224,6 +234,22 @@ public class ContextFactory {
 		return null;
 	}
 	
+	private static HashSet<String> getCurrentContext(ContextFactory client){
+		HashSet<String> res = new HashSet<String>();
+		StringBuilder sql = new StringBuilder("select * from " + Configuration.getTxKeyspace() + "." + "cstx_context");
+		try {
+			ResultSet resultSet = client.getSession().execute(sql.toString());
+			if (resultSet != null && !resultSet.isExhausted()) {
+				while(!resultSet.isExhausted()){
+					final Row row = resultSet.one();
+					res.add(row.getUUID("contextId").toString());
+				}
+			}
+		} catch (Exception e) {
+			throw new UnsupportedOperationException("getTablesChange failed :" + sql);
+		}
+		return res;
+	}
 
 	public static String generateMD5Hash(String input) throws Exception {
 		MessageDigest md = MessageDigest.getInstance("MD5");

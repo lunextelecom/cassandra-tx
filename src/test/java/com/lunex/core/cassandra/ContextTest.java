@@ -2,7 +2,6 @@ package com.lunex.core.cassandra;
 
 import static org.junit.Assert.assertEquals;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.After;
@@ -11,11 +10,9 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.KeyspaceMetadata;
 import com.datastax.driver.core.Metadata;
-import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.lunex.core.utils.Configuration;
@@ -95,17 +92,6 @@ public class ContextTest {
     	session.execute(sql);
     	sql = "truncate test_keyspace.seller_balance";
     	session.execute(sql);
-    	PreparedStatement ps = session.prepare("insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)");
-    	BatchStatement batch = new BatchStatement();
-    	List<Object> params = new ArrayList<Object>();
-    	params.add("duynguyen");
-    	params.add("duynguyen");
-    	params.add("duynguyen");
-    	params.add(26);
-    	batch.add(ps.bind(params.toArray()));
-    	batch.add(ps.bind("trinh", "Duy", "Nguyen", 26));
-    	batch.add(ps.bind("khoa", "Duy", "Nguyen", 26));
-    	session.execute(batch);
     	cluster.close();
 	}
 
@@ -123,5 +109,6 @@ public class ContextTest {
     	assertEquals(1, rows.size());
     	ctx.commit();
 	}
+    
     //
 }

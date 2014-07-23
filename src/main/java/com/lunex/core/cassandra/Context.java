@@ -17,7 +17,10 @@ import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.update.Update;
 
+import com.datastax.driver.core.BatchStatement;
+import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.ColumnMetadata;
+import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.TableMetadata;
@@ -31,11 +34,14 @@ public class Context implements IContext {
 
 	private ContextFactory client;
 	
+	private int batchSize = 100;
 
 	public void commit() {
 		Set<String> setCfTxChanged = getTablesChange();
 		if(setCfTxChanged != null && !setCfTxChanged.isEmpty()){
 			StringBuilder query = new StringBuilder();
+			BatchStatement batch = new BatchStatement();
+			BoundStatement bs = null;
 			for (String cftx : setCfTxChanged) {
 				query = new StringBuilder();
 				//get data from tmp table
@@ -53,14 +59,22 @@ public class Context implements IContext {
 						}
 						if(isDeleted){
 							//commit delete statement
-							commitDeleteStatement(cftx, row);
+							bs = commitDeleteStatement(cftx, row);
+							if(bs != null){
+								batch.add(bs);
+							}
 						}else{
 							//commit others statement
-							commitOthersStatement(cftx, row);
+							bs = commitOthersStatement(cftx, row);
+							if(bs != null){
+								batch.add(bs);
+							}
 						}
+						executeBatch(batch, false);
 					}
 				}
 			}
+			executeBatch(batch, true);
 			//discard all record involved ctxId 
 			rollback();
 		}
@@ -75,7 +89,7 @@ public class Context implements IContext {
 		return Configuration.getKeyspace() + "." + originalCF;
 	}
 	
-	private void commitOthersStatement(String cftx, final Row row) {
+	private BoundStatement commitOthersStatement(String cftx, final Row row) {
 		StringBuilder statement;
 		StringBuilder valueSql;
 		//get original table from tmp table:  customer_91ec1f93 -> customer
@@ -108,14 +122,16 @@ public class Context implements IContext {
 			valueSql.append(")");
 			statement.append(valueSql);
 			try {
-				client.getSession().execute(statement.toString(), params.toArray());
+				BoundStatement ps = client.getSession().prepare(statement.toString()).bind(params.toArray());
+				return ps;
 			} catch (Exception e) {
 				throw new UnsupportedOperationException("commit failed, statement : " + statement.toString());
 			}
 		}
+		return null;
 	}
 
-	private void commitDeleteStatement(String cftx, final Row row) {
+	private BoundStatement commitDeleteStatement(String cftx, final Row row) {
 		StringBuilder statement;
 		//get original table from tmp table:  customer_91ec1f93 -> customer
 		String originalCF = cftx.substring(0, cftx.length()-(Configuration.CHECKSUM_LENGTH+1));
@@ -138,27 +154,49 @@ public class Context implements IContext {
 			params.add(RowKey.getValue(row, colType, colName));
 		}
 		try {
-			client.getSession().execute(statement.toString(), params.toArray());
+			BoundStatement ps = client.getSession().prepare(statement.toString()).bind(params.toArray());
+			return ps;
 		} catch (Exception e) {
 			throw new UnsupportedOperationException("commit failed, statement : " + statement.toString());
 		}
 	}
 
-	
+	private void executeBatch(BatchStatement batch, Boolean forceRun){
+		if(forceRun){
+			if(batch.getStatements() != null && batch.getStatements().size()>0){
+				client.getSession().execute(batch);
+				batch.clear();
+			}
+		}else{
+			if(batch.getStatements() != null && batch.getStatements().size()%batchSize==0){
+				client.getSession().execute(batch);
+				batch.clear();
+			}
+		}
+	}
 	public void rollback() {
 		//rollback all changes, delete tmp table has cstx_id_ = ctxId
 		Set<String> setCfTxChanged = getTablesChange();
+		BatchStatement batch = new BatchStatement();
+		BoundStatement bs = null;
 		if(setCfTxChanged != null && !setCfTxChanged.isEmpty()){
 			for (String cf : setCfTxChanged) {
 				try {
-					client.getSession().execute("delete from " + getFullTXCF(cf) + " where cstx_id_ = ?", UUID.fromString(ctxId) );
+					bs = client.getSession().prepare("delete from " + getFullTXCF(cf) + " where cstx_id_ = ?").bind(UUID.fromString(ctxId));
+					if(bs != null){
+						batch.add(bs);
+					}
+					executeBatch(batch, false);
 				} catch (Exception e) {
 					throw new UnsupportedOperationException("rollback failed");
 				}
 			}
-			client.getSession().execute("delete from " + getFullTXCF("cstx_context")  + " where contextid = ?", UUID.fromString(ctxId) );
+			bs = client.getSession().prepare("delete from " + getFullTXCF("cstx_context")  + " where contextid = ?").bind(UUID.fromString(ctxId));
+			if(bs != null){
+				batch.add(bs);
+			}
+			executeBatch(batch, true);
 		}
-		client.close();
 	}
 
 	public void merge(String cf) {
@@ -187,7 +225,6 @@ public class Context implements IContext {
 				//select statement
 				String tableName = ((PlainSelect)((Select) stm).getSelectBody()).getFromItem().toString().toLowerCase();
 				tableName = tableName.replaceFirst(Configuration.getKeyspace().toLowerCase()+".", "");
-//				updateTablesChange(setCfTxChanged, ContextFactory.getMapOrgTX().get(tableName));
 				res = executesSelectStatement(ctxId, sql, tableName, args);
 
 			} else if (stm instanceof Update) {
@@ -229,6 +266,8 @@ public class Context implements IContext {
 		selectSql = selectSql.replaceFirst("update ", "select * from ");
 		List<Row> lstRow = executesSelectStatement(ctxId, selectSql, orgName, args);
 		//2. insert into tmp table
+		BatchStatement batch = new BatchStatement();
+		BoundStatement bs = null;
 		if(lstRow != null && !lstRow.isEmpty()){
 			List<Object> params = new ArrayList<Object>();
 			StringBuilder insertSql = new StringBuilder();
@@ -250,7 +289,11 @@ public class Context implements IContext {
 				insertSql.append(")");
 				valueSql.append(")");
 				insertSql.append(valueSql);
-				client.getSession().execute(insertSql.toString(), params.toArray());
+				bs = client.getSession().prepare(insertSql.toString()).bind(params.toArray());
+				if(bs != null){
+					batch.add(bs);
+				}
+				executeBatch(batch, false);
 			}
 		}
 			
@@ -261,7 +304,11 @@ public class Context implements IContext {
 			params.add(args[i]);
 		}
 		params.add(UUID.fromString(ctxId));
-		client.getSession().execute(updateSql.toString(), params.toArray());
+		bs = client.getSession().prepare(updateSql.toString()).bind(params.toArray());
+		if(bs != null){
+			batch.add(bs);
+		}
+		executeBatch(batch, true);
 	}
 	
 	private List<Row> executesSelectStatement(String contextId, String sql, String tableName, Object... args){
@@ -332,6 +379,8 @@ public class Context implements IContext {
 		final ResultSet results = client.getSession().execute(sql, args);
 		
 		//2. insert into tmp table with cstx_deleted_ = true
+		BatchStatement batch = new BatchStatement();
+		BoundStatement bs = null;
 		if(results != null){
 			String txName = ContextFactory.getMapOrgTX().get(info.getTable().getName());
 			
@@ -356,9 +405,14 @@ public class Context implements IContext {
 					insertSql.append(")");
 					valueSql.append(")");
 					insertSql.append(valueSql);
-					client.getSession().execute(insertSql.toString(), params.toArray());
+					bs = client.getSession().prepare(insertSql.toString()).bind(params.toArray());
+					if(bs != null){
+						batch.add(bs);
+					}
+					executeBatch(batch, false);
 				}
 			}
+			executeBatch(batch, true);
 		}
 	}
 	

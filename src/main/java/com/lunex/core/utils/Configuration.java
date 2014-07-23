@@ -6,17 +6,20 @@ public class Configuration {
 
 	private static String keyspace = "test_keyspace";
 	
+	private static String txKeyspace = "tx_keyspace";
+	
 	private static String node = "localhost";
 	
 	private static int port = 9042;
 	
 	public static int CHECKSUM_LENGTH = 8;
 	
-	public static void loadConfig( String iNode, int iPort, String iKeyspace){
+	public static void loadConfig( String iNode, int iPort, String iKeyspace, String itxKeyspace){
 		node = iNode;
 		port = iPort;
 		keyspace = iKeyspace;
-		ContextFactory.init(iNode, iPort, iKeyspace);
+		txKeyspace = itxKeyspace;
+		ContextFactory.init(iNode, iPort, iKeyspace, itxKeyspace);
 		
 	}
 
@@ -29,6 +32,10 @@ public class Configuration {
 	}
 	public static String getKeyspace() {
 		return keyspace;
+	}
+
+	public static String getTxKeyspace() {
+		return txKeyspace;
 	}
 
 }

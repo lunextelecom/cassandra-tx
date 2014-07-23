@@ -31,16 +31,15 @@ public class Context implements IContext {
 
 	private ContextFactory client;
 	
-	//set of tx column family has changed 
-	private Set<String> setCfTxChanged = new HashSet<String>();
 
 	public void commit() {
+		Set<String> setCfTxChanged = getTablesChange();
 		if(setCfTxChanged != null && !setCfTxChanged.isEmpty()){
 			StringBuilder query = new StringBuilder();
 			for (String cftx : setCfTxChanged) {
 				query = new StringBuilder();
 				//get data from tmp table
-				query.append("SELECT * from " + cftx + " WHERE cstx_id_ = ?");
+				query.append("SELECT * from " + getFullTXCF(cftx) + " WHERE cstx_id_ = ?");
 				final ResultSet results = client.getSession().execute(query.toString(), UUID.fromString(ctxId));
 				if(results != null){
 					while(!results.isExhausted()){
@@ -68,6 +67,14 @@ public class Context implements IContext {
 		
 	}
 
+	private String getFullTXCF(String txCF){
+		return Configuration.getTxKeyspace() + "." + txCF;
+	}
+	
+	private String getFullOriginalCF(String originalCF){
+		return Configuration.getKeyspace() + "." + originalCF;
+	}
+	
 	private void commitOthersStatement(String cftx, final Row row) {
 		StringBuilder statement;
 		StringBuilder valueSql;
@@ -78,7 +85,7 @@ public class Context implements IContext {
 		if(def != null){
 			//generation insert statement for original table
 			statement = new StringBuilder();
-			statement.append("insert into " + originalCF + "(");
+			statement.append("insert into " + getFullOriginalCF(originalCF) + "(");
 			
 			valueSql = new StringBuilder(" values(");
 			
@@ -114,7 +121,7 @@ public class Context implements IContext {
 		String originalCF = cftx.substring(0, cftx.length()-(Configuration.CHECKSUM_LENGTH+1));
 		//generate delete statement
 		statement = new StringBuilder();
-		statement.append("delete from " + originalCF);
+		statement.append("delete from " + getFullOriginalCF(originalCF));
 		Boolean isFirst = true;
 		TableMetadata def = ContextFactory.getMapTableMetadata().get(originalCF);
 		List<Object> params = new ArrayList<Object>();
@@ -140,17 +147,18 @@ public class Context implements IContext {
 	
 	public void rollback() {
 		//rollback all changes, delete tmp table has cstx_id_ = ctxId
+		Set<String> setCfTxChanged = getTablesChange();
 		if(setCfTxChanged != null && !setCfTxChanged.isEmpty()){
 			for (String cf : setCfTxChanged) {
 				try {
-					client.getSession().execute("delete from " + cf + " where cstx_id_ = ?", UUID.fromString(ctxId) );
+					client.getSession().execute("delete from " + getFullTXCF(cf) + " where cstx_id_ = ?", UUID.fromString(ctxId) );
 				} catch (Exception e) {
 					throw new UnsupportedOperationException("rollback failed");
 				}
 			}
-			setCfTxChanged = new HashSet<String>();
+			client.getSession().execute("delete from " + getFullTXCF("cstx_context")  + " where contextid = ?", UUID.fromString(ctxId) );
 		}
-		
+		client.close();
 	}
 
 	public void merge(String cf) {
@@ -174,29 +182,30 @@ public class Context implements IContext {
 		try {
 			CCJSqlParserManager parserManager = new CCJSqlParserManager();
 			Statement stm = parserManager.parse(new StringReader(sql));
+			Set<String> setCfTxChanged = getTablesChange();
 			if (stm instanceof Select) {
 				//select statement
 				String tableName = ((PlainSelect)((Select) stm).getSelectBody()).getFromItem().toString().toLowerCase();
 				tableName = tableName.replaceFirst(Configuration.getKeyspace().toLowerCase()+".", "");
-				setCfTxChanged.add(ContextFactory.getMapOrgTX().get(tableName));
+//				updateTablesChange(setCfTxChanged, ContextFactory.getMapOrgTX().get(tableName));
 				res = executesSelectStatement(ctxId, sql, tableName, args);
 
 			} else if (stm instanceof Update) {
 				//update statement
 				String tableName = ((Update) stm).getTable().getName();
-				setCfTxChanged.add(ContextFactory.getMapOrgTX().get(tableName));
+				updateTablesChange(setCfTxChanged, ContextFactory.getMapOrgTX().get(tableName));
 				executeUpdateStatement(sql, (Update) stm, args);
 
 			} else if (stm instanceof Delete) {
 				//delete statement
 				String tableName = ((Delete) stm).getTable().getName();
-				setCfTxChanged.add(ContextFactory.getMapOrgTX().get(tableName));
+				updateTablesChange(setCfTxChanged, ContextFactory.getMapOrgTX().get(tableName));
 				executeDeleteStatement(ctxId, sql, (Delete) stm, args);
 
 			} else if (stm instanceof Insert) {
 				//insert statement
 				String tableName = ((Insert) stm).getTable().getName();
-				setCfTxChanged.add(ContextFactory.getMapOrgTX().get(tableName));
+				updateTablesChange(setCfTxChanged, ContextFactory.getMapOrgTX().get(tableName));
 				executeInsertStatement(ctxId, (Insert) stm, args);
 			}
 		} catch (Exception e) {
@@ -215,13 +224,9 @@ public class Context implements IContext {
 		 * */
 		String orgName = info.getTable().getName();
 		String txName = ContextFactory.getMapOrgTX().get(orgName);
-		String txWholeName = txName;
-		if(!Strings.isNullOrEmpty(info.getTable().getSchemaName())){
-			txWholeName = info.getTable().getSchemaName() + "." + txName;
-		}
 		//1. generate select statement
 		String selectSql = info.toString().toLowerCase();
-		selectSql = selectSql.replaceFirst("update " + info.getTable().getWholeTableName(), "select * from " + info.getTable().getWholeTableName());
+		selectSql = selectSql.replaceFirst("update ", "select * from ");
 		List<Row> lstRow = executesSelectStatement(ctxId, selectSql, orgName, args);
 		//2. insert into tmp table
 		if(lstRow != null && !lstRow.isEmpty()){
@@ -234,7 +239,7 @@ public class Context implements IContext {
 				params = new ArrayList<Object>();
 				insertSql = new StringBuilder();
 				valueSql = new StringBuilder();
-				insertSql.append("insert into " + txWholeName + "(cstx_id_");
+				insertSql.append("insert into " + getFullTXCF(txName) + "(cstx_id_");
 				valueSql.append(" values(?");
 				params.add(UUID.fromString(ctxId));
 				for (ColumnMetadata col : def.getColumns()) {
@@ -250,7 +255,7 @@ public class Context implements IContext {
 		}
 			
 		//3. execute update statement on tmp table
-		StringBuilder updateSql = new StringBuilder(sql.replaceFirst(info.getTable().getWholeTableName(), txWholeName) + " and cstx_id_ = ?");
+		StringBuilder updateSql = new StringBuilder(sql.replaceFirst(info.getTable().getWholeTableName(), getFullTXCF(txName)) + " and cstx_id_ = ?");
 		List<Object> params = new ArrayList<Object>();
 		for(int i = 0; i < args.length; i++){
 			params.add(args[i]);
@@ -276,7 +281,7 @@ public class Context implements IContext {
 		//2. get data from tmp table
 		TableMetadata def = ContextFactory.getMapTableMetadata().get(tableName);
 		String txName = ContextFactory.getMapOrgTX().get(tableName);
-		StringBuilder txSql = new StringBuilder(sql.toString().replaceFirst(tableName, txName)); 
+		StringBuilder txSql = new StringBuilder(sql.toString().replaceFirst(getFullOriginalCF(tableName), getFullTXCF(txName))); 
 		txSql.append(" and cstx_id_ = ?");
 		List<Object> params = new ArrayList<Object>();
 		for(int i = 0; i < args.length; i++){
@@ -296,14 +301,20 @@ public class Context implements IContext {
 		}
 		//3. return data from tmp table if exists, otherwise return data from original table
 		List<Row> res = new ArrayList<Row>(); 
-		for (Row child : lstOrg) {
-			RowKey tmp = new RowKey();
-			tmp.setRow(child);
-			tmp.setKeys(def.getPrimaryKey());
-			if(mapRow.containsKey(tmp)){
-				res.add(mapRow.get(tmp));
-			}else{
-				res.add(child);
+		if(lstOrg != null && lstOrg.size() > 0){
+			for (Row child : lstOrg) {
+				RowKey tmp = new RowKey();
+				tmp.setRow(child);
+				tmp.setKeys(def.getPrimaryKey());
+				if(mapRow.containsKey(tmp)){
+					res.add(mapRow.get(tmp));
+				}else{
+					res.add(child);
+				}
+			}
+		}else{
+			for (Row row : mapRow.values()) {
+				res.add(row);
 			}
 		}
 		return res;
@@ -323,10 +334,7 @@ public class Context implements IContext {
 		//2. insert into tmp table with cstx_deleted_ = true
 		if(results != null){
 			String txName = ContextFactory.getMapOrgTX().get(info.getTable().getName());
-			String txWholeName = txName;
-			if(!Strings.isNullOrEmpty(info.getTable().getSchemaName())){
-				txWholeName = info.getTable().getSchemaName() + "." + txName;
-			}
+			
 			TableMetadata def = ContextFactory.getMapTableMetadata().get(info.getTable().getName());
 			List<Object> params = new ArrayList<Object>();
 			StringBuilder insertSql = new StringBuilder();
@@ -337,7 +345,7 @@ public class Context implements IContext {
 					params = new ArrayList<Object>();
 					insertSql = new StringBuilder();
 					valueSql = new StringBuilder();
-					insertSql.append("insert into " + txWholeName + "(cstx_id_, cstx_deleted_");
+					insertSql.append("insert into " +getFullTXCF(txName) + "(cstx_id_, cstx_deleted_");
 					valueSql.append(" values(?, true");
 					params.add(UUID.fromString(contextId));
 					for (ColumnMetadata col : def.getPrimaryKey()) {
@@ -361,6 +369,7 @@ public class Context implements IContext {
 		String orgName = info.getTable().getName();
 		String txName = ContextFactory.getMapOrgTX().get(orgName);
 		info.getTable().setName(txName);
+		info.getTable().setSchemaName(Configuration.getTxKeyspace());
 		info.getColumns().add("cstx_id_");
 		
 		List<Object> params = new ArrayList<Object>();
@@ -372,6 +381,39 @@ public class Context implements IContext {
 		insertSql = insertSql.replace(insertSql.lastIndexOf(")"), insertSql.length(), ",?)");
 		client.getSession().execute(insertSql.toString(), params.toArray());
 	}
+	
+	private void updateTablesChange(Set<String> input, String tableName){
+		if(!input.contains(tableName)){
+			input.add(tableName);
+			StringBuilder sql = new StringBuilder("update " + getFullTXCF("cstx_context") + " set lstcfname = ? where contextid = ?");
+			try {
+				List<Object> params = new ArrayList<Object>();
+				params.add(input);
+				params.add(UUID.fromString(ctxId));
+				client.getSession().execute(sql.toString(), params.toArray());
+			} catch (Exception e) {
+				throw new UnsupportedOperationException("updateTablesChange failed :" + sql);
+			}
+		}
+	}
+	
+	private Set<String> getTablesChange(){
+		Set<String> res = new HashSet<String>();
+		StringBuilder sql = new StringBuilder("select * from " + getFullTXCF("cstx_context") + " where contextid = ?");
+		try {
+			List<Object> params = new ArrayList<Object>();
+			params.add(UUID.fromString(ctxId));
+			ResultSet resultSet = client.getSession().execute(sql.toString(), params.toArray());
+			if (resultSet != null && !resultSet.isExhausted()) {
+				final Row row = resultSet.one();
+				res = row.getSet("lstcfname", String.class);
+			}
+		} catch (Exception e) {
+			throw new UnsupportedOperationException("getTablesChange failed :" + sql);
+		}
+		return res;
+	}
+	
 	//get,set
 	public String getCtxId() {
 		return ctxId;

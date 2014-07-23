@@ -2,6 +2,7 @@ package com.lunex.core.cassandra;
 
 import java.security.MessageDigest;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -51,14 +52,14 @@ public class ContextFactory {
 	 * @param port
 	 *            Port of cluster host.
 	 */
-	public void connect(final String node, final int port, final String keyspace) {
+	public void connect(final String node, final int port) {
 		this.cluster = Cluster.builder().addContactPoint(node).withPort(port)
 				.build();
-		session = cluster.connect(keyspace);
+		session = cluster.connect();
 		
 	}
 
-	public static void init(final String node, final int port, final String keyspace) {
+	public static void init(final String node, final int port, final String keyspace, final String txKeyspace) {
 		Cluster cluster = Cluster.builder().addContactPoint(node).withPort(port)
 				.build();
 
@@ -67,11 +68,16 @@ public class ContextFactory {
 		Metadata metadata = cluster.getMetadata();
 		
 		KeyspaceMetadata keyspaceMetadata;
+		KeyspaceMetadata txKeyspaceMetadata;
 		session = cluster.connect();
 		if(metadata != null){
 			keyspaceMetadata = metadata.getKeyspace(keyspace);
 			if(keyspaceMetadata == null){
-				throw new UnsupportedOperationException("Can't find keyspace");
+				throw new UnsupportedOperationException("Can't find keyspace :" + keyspace);
+			}
+			txKeyspaceMetadata = metadata.getKeyspace(txKeyspace);
+			if(txKeyspaceMetadata == null){
+				throw new UnsupportedOperationException("Can't find keyspace :" + txKeyspace);
 			}
 			for (TableMetadata child : keyspaceMetadata.getTables()) {
 				//check tx table existed
@@ -88,20 +94,40 @@ public class ContextFactory {
 						}
 					}
 					String txName = child.getName()+"_"+checkSum;
-					if(keyspaceMetadata.getTable(txName) == null){
+					if(txKeyspaceMetadata.getTable(txName) == null){
 						//create tx column family
 						String cql = child.asCQLQuery();
-						cql = cql.replace("CREATE TABLE " + keyspace + "." + child.getName() + " ", "CREATE TABLE " + keyspace + "." + txName + " ");
+						cql = cql.replace("CREATE TABLE " + keyspace + "." + child.getName() + " ", "CREATE TABLE " + txKeyspace + "." + txName + " ");
 						
-						int beginIndex = cql.indexOf("PRIMARY KEY (");
-						int endIndex = cql.indexOf (")",beginIndex);
-						String oldPri = cql.substring(beginIndex, endIndex+1);
+						//
+						StringBuilder oldPriTmp = new StringBuilder("PRIMARY KEY (");
+						List<ColumnMetadata> lstParKey = child.getPartitionKey();
+						if(lstParKey != null && lstParKey.size() >1){
+							oldPriTmp.append("(");
+							Boolean isFirst = true;
+							for (ColumnMetadata colKey : child.getPartitionKey()) {
+								if(isFirst){
+									isFirst = false;
+									oldPriTmp.append(colKey.getName());
+								}else{
+									oldPriTmp.append(", " + colKey.getName());
+								}
+							}
+							oldPriTmp.append(")");
+						}else{
+							oldPriTmp.append(child.getPartitionKey().get(0).getName());
+						}
+						for (ColumnMetadata colKey : child.getClusteringColumns()) {
+							oldPriTmp.append(", " + colKey.getName());
+						}
+						oldPriTmp.append(")");
+						//
 						StringBuilder newPri = new StringBuilder("cstx_id_ uuid, cstx_deleted_ boolean, PRIMARY KEY (cstx_id_");
 						for (ColumnMetadata colKey : child.getPrimaryKey()) {
 							newPri.append("," + colKey.getName());
 						}
 						newPri.append(")");
-						cql = cql.replace(oldPri, newPri);
+						cql = cql.replace(oldPriTmp, newPri);
 						//create tx cf
 						session.execute(cql);
 					}
@@ -111,6 +137,12 @@ public class ContextFactory {
 					throw new UnsupportedOperationException("checksum failed with cf: " + child.getName());
 				}
 				mapTableMetadata.put(child.getName(), child);
+			}
+			String txName = "cstx_context";
+			if(txKeyspaceMetadata.getTable(txName) == null){
+				//create cstx_context in tx_keyspace if not exists
+				String sql = "CREATE TABLE " + txKeyspace + ".cstx_context (contextid uuid, lstcfname set<text>, createdid timeuuid, PRIMARY KEY (contextid))";
+				session.execute(sql);
 			}
 		}
 		session.close();
@@ -147,7 +179,7 @@ public class ContextFactory {
 		Context ctx = new Context();
 		try {
 			ContextFactory client = ContextFactory.getInstance();
-			client.connect(Configuration.getNode(), Configuration.getPort(), Configuration.getKeyspace());
+			client.connect(Configuration.getNode(), Configuration.getPort());
 			ctx.setClient(client);
 			String ctxId = UUID.randomUUID().toString();
 			ctx.setCtxId(ctxId);
@@ -167,7 +199,7 @@ public class ContextFactory {
 					throw new UnsupportedOperationException("contextId :" + contextId + " is existed");
 				}
 				ContextFactory client = ContextFactory.getInstance();
-				client.connect(Configuration.getNode(), Configuration.getPort(), Configuration.getKeyspace());
+				client.connect(Configuration.getNode(), Configuration.getPort());
 				ctx.setClient(client);
 				ctx.setCtxId(contextId);
 				currentCTX.put(contextId, ctx);
@@ -208,11 +240,16 @@ public class ContextFactory {
 	}
 	
 	public static String generateContextIdFromString(String input) throws Exception {
-		StringBuffer sb = new StringBuffer(generateMD5Hash(input));
-		for(int i = 8; i < 24; i=i+5){
-			sb.insert(i, "-");
+		try{
+			UUID.fromString(input);
+		}catch(Exception ex){
+			StringBuffer sb = new StringBuffer(generateMD5Hash(input));
+			for(int i = 8; i < 24; i=i+5){
+				sb.insert(i, "-");
+			}
+			return sb.toString();
 		}
-		return sb.toString();
+		return input;
 	}
 
 

@@ -2,7 +2,11 @@ package com.lunex.core.cassandra;
 
 import static org.junit.Assert.assertEquals;
 
+import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import org.junit.After;
 import org.junit.AfterClass;
@@ -97,6 +101,16 @@ public class ContextTest {
 
     //test case here
     @Test
+    public void testSelect() {
+		String sql = "select * from test_keyspace.customer where username=?";
+    	System.out.println(sql);
+    	Context ctx = (Context) Context.start();
+    	ctx.execute(sql, "duynguyen");
+    	
+	}
+    
+    
+    @Test
     public void testInsert() {
 		String sql = "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
     	System.out.println(sql);
@@ -105,9 +119,34 @@ public class ContextTest {
     	//select
     	sql = "select * from test_keyspace.customer where username=?";
     	List<Row> rows = ctx.execute(sql, "duynguyen");
-    	System.out.println(sql);
     	assertEquals(1, rows.size());
     	ctx.commit();
+	}
+    
+    @Test
+    public void testSum() {
+    	String sql = "insert into test_keyspace.seller_balance(company, id, updateid, amount)values                (?,?,now(),?)";
+    	Context ctx = (Context) Context.start();
+    	ctx.execute(sql, "lunex", 123l, new BigDecimal(10));
+		ctx.execute(sql, "lunex", 123l, new BigDecimal(20));
+		ctx.execute(sql, "lunex", 123l, new BigDecimal(30));
+		ctx.execute(sql, "lunex", 123l, new BigDecimal(20));
+		ctx.execute(sql, "lunex", 123l, new BigDecimal(10));
+    	Map<String, Object> key = new HashMap<String, Object>();
+    	key.put("company", "lunex");
+    	key.put("id", 123l);
+    	BigDecimal amount = ctx.sum("seller_balance", key, "amount");
+    	assertEquals(amount, new BigDecimal(90));
+    	ctx.commit();
+	}
+    
+    @Test
+    public void testMerge() {
+    	Context ctx = (Context) Context.start();
+    	Map<String, Object> key = new HashMap<String, Object>();
+    	key.put("company", "lunex");
+    	key.put("id", 123l);
+    	ctx.merge("seller_balance", key, "amount");
 	}
     
     //

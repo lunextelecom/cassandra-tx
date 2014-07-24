@@ -1,6 +1,7 @@
 package com.lunex.core.cassandra;
 
 import java.io.StringReader;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -9,7 +10,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import net.sf.jsqlparser.expression.Function;
+import net.sf.jsqlparser.expression.JdbcParameter;
+import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
 import net.sf.jsqlparser.parser.CCJSqlParserManager;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.insert.Insert;
@@ -17,19 +22,24 @@ import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.update.Update;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.ColumnMetadata;
+import com.datastax.driver.core.DataType;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.TableMetadata;
-import com.google.common.base.Strings;
 import com.lunex.core.utils.Configuration;
 import com.lunex.core.utils.RowKey;
 
 public class Context implements IContext {
 
+	private static final Logger logger = LoggerFactory.getLogger(Context.class);
+	
 	private String ctxId;
 
 	private ContextFactory client;
@@ -198,11 +208,204 @@ public class Context implements IContext {
 			executeBatch(batch, true);
 		}
 	}
-
-	public void merge(String cf) {
+	public void merge(String cf, Object key, String mergedColumn) {
+		/* key : partitionkey(required) + clustering key except column with timeuuid type
+		 * 1. lstRec = get all record of cf by key
+		 * 2. sum lstRec by  mergedCoulmn
+		 * 3. update lstRec with isMerged = true
+		 * 4. insert sum record 
+		 * 5. delete lstRec
+		 * */
+		
+		//1. lstRec = get all record of cf by key
+		int index = cf.indexOf(".");
+		if(index != -1){
+			cf = cf.substring(cf.indexOf(".")+1);
+		}
+		TableMetadata def = ContextFactory.getMapTableMetadata().get(cf);
+		StringBuilder selectSql = new StringBuilder("select * from " + getFullOriginalCF(cf) + " where ");
+		List<ColumnMetadata> lstPrimaryKey = def.getPrimaryKey(); 
+		List<Object> params = new ArrayList<Object>();
+		if(lstPrimaryKey != null && lstPrimaryKey.size() >0){
+			if(lstPrimaryKey.size()==1){
+				selectSql.append(lstPrimaryKey.get(0).getName() + " = ?");
+				params.add(key);
+			}else{
+				Boolean isFirst = true;
+				Map<String, Object> mapKey = (Map<String, Object>) key;
+				for (ColumnMetadata col : lstPrimaryKey) {
+					if(!col.getType().getName().toString().equals(DataType.timeuuid().getName().toString())){
+						if(isFirst){
+							isFirst = false;
+							selectSql.append(col.getName() + " = ?");
+						}else{
+							selectSql.append(" and " + col.getName() + " = ?");
+						}
+						params.add(mapKey.get(col.getName()));
+					}
+				}
+			}
+		}
+		//2. sum lstRec by  mergedCoulmn
+		List<Row> lstRec = new ArrayList<Row>();
+		BigDecimal amount = new BigDecimal(0);
+		ResultSet resultSet = client.getSession().execute(selectSql.toString(),params.toArray());
+		if(resultSet != null){
+			while(!resultSet.isExhausted()){
+				Row row = resultSet.one();
+				lstRec.add(row);
+				if(!row.getBool("isMerged")){
+					amount = amount.add(row.getDecimal(mergedColumn));
+				}
+			}
+		}
+		
+		//3. update lstRec with isMerged = true
+		StringBuilder updateSql = new StringBuilder("update " + getFullOriginalCF(cf) + " set isMerged = true where ");
+		if(lstPrimaryKey != null && lstPrimaryKey.size() >0){
+			if(lstPrimaryKey.size()==1){
+				updateSql.append(lstPrimaryKey.get(0).getName() + " = ?");
+			}else{
+				Boolean isFirst = true;
+				for (ColumnMetadata col : lstPrimaryKey) {
+					if(isFirst){
+						isFirst = false;
+						updateSql.append(col.getName() + " = ?");
+					}else{
+						updateSql.append(" and " + col.getName() + " = ?");
+					}
+				}
+			}
+		}
+		BatchStatement batch = new BatchStatement();
+		PreparedStatement updateStatement = client.getSession().prepare(updateSql.toString());
+		for (Row row : lstRec) {
+			params = new ArrayList<Object>();
+			for (ColumnMetadata col : lstPrimaryKey) {
+				params.add(RowKey.getValue(row, col.getType().getName().toString(), col.getName()));
+			}
+			batch.add(updateStatement.bind(params.toArray()));
+			executeBatch(batch, false);
+		}
+		executeBatch(batch, true);
+		//4. insert sum record 
+		StringBuilder insertSql = new StringBuilder("insert into " + getFullOriginalCF(cf) +"(");
+		StringBuilder valueSql = new StringBuilder(" values(");
+		params = new ArrayList<Object>();
+		Boolean isFirst = true;
+		if(lstPrimaryKey != null && lstPrimaryKey.size() >0){
+			if(lstPrimaryKey.size()==1){
+				insertSql.append(lstPrimaryKey.get(0).getName());
+				valueSql.append("?");
+				params.add(key);
+			}else{
+				Map<String, Object> mapKey = (Map<String, Object>) key;
+				for (ColumnMetadata col : lstPrimaryKey) {
+					if(isFirst){
+						isFirst = false;
+						insertSql.append(col.getName());
+						valueSql.append("?");
+					}else{
+						insertSql.append("," + col.getName());
+						valueSql.append(",?");
+					}
+					if(!col.getType().getName().toString().equals(DataType.timeuuid().getName().toString())){
+						params.add(mapKey.get(col.getName()));
+					}else{
+						valueSql.deleteCharAt(valueSql.length()-1);
+						valueSql.append("now()");
+					}
+				}
+			}
+		}
+		insertSql.append("," + mergedColumn);
+		valueSql.append(",?");
+		params.add(amount);
+		insertSql.append(")");
+		valueSql.append(")");
+		insertSql.append(valueSql);
+		client.getSession().execute(insertSql.toString(), params.toArray());
+		
+		
+		//5. delete lstRec
+		StringBuilder deleteSql = new StringBuilder("delete from " + getFullOriginalCF(cf) + "  where ");
+		if(lstPrimaryKey != null && lstPrimaryKey.size() >0){
+			if(lstPrimaryKey.size()==1){
+				deleteSql.append(lstPrimaryKey.get(0).getName() + " = ?");
+			}else{
+				isFirst = true;
+				for (ColumnMetadata col : lstPrimaryKey) {
+					if(isFirst){
+						isFirst = false;
+						deleteSql.append(col.getName() + " = ?");
+					}else{
+						deleteSql.append(" and " + col.getName() + " = ?");
+					}
+				}
+			}
+		}
+		batch = new BatchStatement();
+		PreparedStatement deleteStatement = client.getSession().prepare(deleteSql.toString());
+		for (Row row : lstRec) {
+			params = new ArrayList<Object>();
+			for (ColumnMetadata col : lstPrimaryKey) {
+				params.add(RowKey.getValue(row, col.getType().getName().toString(), col.getName()));
+			}
+			batch.add(deleteStatement.bind(params.toArray()));
+			executeBatch(batch, false);
+		}
+		executeBatch(batch, true);
 		
 	}
 	
+	public BigDecimal sum(String cf, Object key, String sumColumn) {
+		/* key : partitionkey(required) + clustering(optional)
+		 * 1. lstRec = get all record of cf by key
+		 * 2. sum lstRec by  sumColumn
+		 * */
+		
+		//1. lstRec = get all record of cf by key
+		int index = cf.indexOf(".");
+		if(index != -1){
+			cf = cf.substring(cf.indexOf(".")+1);
+		}
+		TableMetadata def = ContextFactory.getMapTableMetadata().get(cf);
+		StringBuilder selectSql = new StringBuilder("select " + sumColumn + " from " + getFullOriginalCF(cf) + " where ");
+		List<ColumnMetadata> lstPrimaryKey = def.getPrimaryKey(); 
+		List<Object> params = new ArrayList<Object>();
+		if(lstPrimaryKey != null && lstPrimaryKey.size() >0){
+			if(lstPrimaryKey.size()==1){
+				selectSql.append(lstPrimaryKey.get(0).getName() + " = ?");
+				params.add(key);
+			}else{
+				Boolean isFirst = true;
+				Map<String, Object> mapKey = (Map<String, Object>) key;
+				for (ColumnMetadata col : lstPrimaryKey) {
+					if(mapKey.get(col.getName()) != null){
+						if(isFirst){
+							isFirst = false;
+							selectSql.append(col.getName() + " = ?");
+						}else{
+							selectSql.append(" and " + col.getName() + " = ?");
+						}
+						params.add(mapKey.get(col.getName()));
+					}
+				}
+			}
+		}
+		//2. sum lstRec 
+		BigDecimal amount = new BigDecimal(0);
+		List<Row> resultSet = execute(selectSql.toString(), params.toArray());
+		if(resultSet != null){
+			for (Row row : resultSet) {
+				if(!row.getBool("isMerged")){
+					amount = amount.add(row.getDecimal(sumColumn));
+				}
+			}
+		}
+		return amount;
+		
+	}
 	public static IContext start() {
 		return ContextFactory.start();
 	}
@@ -223,8 +426,15 @@ public class Context implements IContext {
 			Set<String> setCfTxChanged = getTablesChange();
 			if (stm instanceof Select) {
 				//select statement
+				sql = sql.toLowerCase();
 				String tableName = ((PlainSelect)((Select) stm).getSelectBody()).getFromItem().toString().toLowerCase();
-				tableName = tableName.replaceFirst(Configuration.getKeyspace().toLowerCase()+".", "");
+				int index = tableName.indexOf(Configuration.getKeyspace().toLowerCase() + ".");
+				if(index == -1){
+					//input doesnot contain keyspace
+					sql = sql.replaceFirst(tableName, getFullOriginalCF(tableName));
+				}else{
+					tableName = tableName.replaceFirst(Configuration.getKeyspace().toLowerCase()+".", "");
+				}
 				res = executesSelectStatement(ctxId, sql, tableName, args);
 
 			} else if (stm instanceof Update) {
@@ -262,7 +472,28 @@ public class Context implements IContext {
 		String orgName = info.getTable().getName();
 		String txName = ContextFactory.getMapOrgTX().get(orgName);
 		//1. generate select statement
-		String selectSql = info.toString().toLowerCase();
+		Boolean isReplace = false;
+		String tmpString ="_fixedJSqlParserBug_";
+		for (Object obj : info.getExpressions()) {
+			if(obj instanceof Function){
+				if(((Function) obj).getParameters() == null){
+					ExpressionList expr = new ExpressionList();
+					List<Object> listparam= new ArrayList<Object>();
+					listparam.add(tmpString);
+					expr.setExpressions(listparam);
+					((Function)obj).setParameters(expr);
+					isReplace = true;
+				}
+				
+			}
+		}
+		String selectSql = null;
+		
+		if(isReplace){
+			selectSql = info.toString().replaceAll(tmpString, "").toLowerCase();
+		}else{
+			selectSql = info.toString().toLowerCase();
+		}
 		selectSql = selectSql.replaceFirst("update ", "select * from ");
 		List<Row> lstRow = executesSelectStatement(ctxId, selectSql, orgName, args);
 		//2. insert into tmp table
@@ -348,6 +579,9 @@ public class Context implements IContext {
 		}
 		//3. return data from tmp table if exists, otherwise return data from original table
 		List<Row> res = new ArrayList<Row>(); 
+		for (Row row : mapRow.values()) {
+			res.add(row);
+		}
 		if(lstOrg != null && lstOrg.size() > 0){
 			for (Row child : lstOrg) {
 				RowKey tmp = new RowKey();
@@ -358,10 +592,6 @@ public class Context implements IContext {
 				}else{
 					res.add(child);
 				}
-			}
-		}else{
-			for (Row row : mapRow.values()) {
-				res.add(row);
 			}
 		}
 		return res;
@@ -417,9 +647,10 @@ public class Context implements IContext {
 	}
 	
 	private void executeInsertStatement(String contextId, Insert info, Object... args){
-		/*
-		 * generate insert statement from tmp table
-		 * */
+		logger.info("executeInsertStatement");
+		
+		 /* generate insert statement from tmp table
+		 */ 
 		String orgName = info.getTable().getName();
 		String txName = ContextFactory.getMapOrgTX().get(orgName);
 		info.getTable().setName(txName);
@@ -431,7 +662,29 @@ public class Context implements IContext {
 			params.add(args[i]);
 		}
 		params.add(UUID.fromString(ctxId));
-		StringBuilder insertSql = new StringBuilder(info.toString());
+		Boolean isReplace = false;
+		String tmpString ="_fixedJSqlParserBug_";
+		for (Object obj : ((ExpressionList) info.getItemsList()).getExpressions()) {
+			if(obj instanceof Function){
+				if(((Function) obj).getParameters() == null){
+					ExpressionList expr = new ExpressionList();
+					List<Object> listparam= new ArrayList<Object>();
+					listparam.add(tmpString);
+					expr.setExpressions(listparam);
+					((Function)obj).setParameters(expr);
+					isReplace = true;
+				}
+				
+			}
+		}
+		
+		StringBuilder insertSql = null;
+		
+		if(isReplace){
+			insertSql = new StringBuilder(info.toString().replaceAll(tmpString, ""));
+		}else{
+			insertSql = new StringBuilder(info.toString());
+		}
 		insertSql = insertSql.replace(insertSql.lastIndexOf(")"), insertSql.length(), ",?)");
 		client.getSession().execute(insertSql.toString(), params.toArray());
 	}
@@ -467,7 +720,60 @@ public class Context implements IContext {
 		}
 		return res;
 	}
-	
+
+	public void incre(String cf, Object key, String column, BigDecimal amount){
+		try {
+			StringBuilder statement = new StringBuilder();
+			StringBuilder valueSql = new StringBuilder();
+			cf = cf.replaceFirst(Configuration.getKeyspace() + ".","");
+			TableMetadata def = ContextFactory.getMapTableMetadata().get(cf);
+			if (def == null) {
+				throw new Exception( "Exception : can not get getMapTableMetadata() with " + cf);
+			}
+			statement.append("insert into " + cf + "(");
+			valueSql.append(" values(");
+			Boolean isHashMap = false;
+			HashMap<String, Object> primaryKey = null;
+			List<Object> params = new ArrayList<Object>();
+			if(key instanceof HashMap<?, ?>){
+				isHashMap = true;
+				primaryKey = (HashMap<String, Object>) key;
+			}
+			if (isHashMap  && primaryKey != null) {
+				for (ColumnMetadata colKey : def.getPrimaryKey()) {
+					String colType = colKey.getType().getName().toString();
+					if (colType.equals(DataType.timestamp().getName().toString())
+							|| colType.equals(DataType.timeuuid().getName().toString())) {
+						valueSql.append("now(),");
+					} else {
+						valueSql.append("?,");
+						params.add(primaryKey.get(colKey.getName()));
+					}
+					statement.append(colKey.getName() + ",");
+				}
+			} else {
+				for (ColumnMetadata colKey : def.getPrimaryKey()) {
+					String colType = colKey.getType().getName().toString();
+					statement.append(colKey.getName() + ",");
+					if (colType.equals(DataType.timestamp().getName().toString())
+							|| colType.equals(DataType.timeuuid().getName().toString())) {
+						valueSql.append("now(),");
+					} else {
+						valueSql.append("?,");
+						params.add(key);
+					}
+				}
+			}
+			statement.append(column + ")");
+			valueSql.append("?)");
+			params.add(amount);
+			statement.append(valueSql);
+			execute(statement.toString(), params.toArray());
+		} catch (Exception ex) {
+			throw new UnsupportedOperationException("incre method failed");
+		}
+	}
+
 	//get,set
 	public String getCtxId() {
 		return ctxId;

@@ -18,17 +18,17 @@ Arithmetic operations is non blocking and it is optimized for update rather than
 
 ### Implementation
 ##### incre/decre: single record insert
-  1. insert records
+  1. (cassandra operation) insert records
 
 ##### merge:
-  1. normal_rows, tombstone_rows, merge_rows = get rows for sum
-  2. discard invalid tombstone_rows 
-  3. sum = normal_rows + valid_tombstone_rows + merge_rows
-  4. newversion = generate timeuuid
-  5. insert tombstone for normal + merged rows with newversion
-  6. insert merge record with sum and newversion.  this operation make tombstone valid
-  7. delete normal and merge records with valid tombstone.  Do not send this request if there isn't any records to delete.
-  8. delete invalid tombstone older than 10 mins if there are any, do not send this request if there isnt' any match
+  1. (cassandra operation) normal_rows, tombstone_rows, merge_rows = get rows for sum
+  2. (local code) discard invalid tombstone_rows 
+  3. (local code) sum = normal_rows + valid_tombstone_rows + merge_rows
+  4. (local code) newversion = generate timeuuid
+  5. (cassandra operation) insert tombstone for normal + merged rows with newversion
+  6. (cassandra operation) insert merge record with sum and newversion.  this operation make tombstone valid
+  7. (cassandra operation, sometimes) delete normal and merge records with valid tombstone.  Do not send this request if there isn't any records to delete.
+  8. (cassandra operation, sometimes) delete invalid tombstone older than 10 mins if there are any, do not send this request if there isnt' any match
 
 ##### sum: single wide row read 
   1. normal_rows, tombstone_rows, merge_rows = get rows for sum

@@ -35,7 +35,7 @@ Arithmetic operations is non blocking and it is optimized for update rather than
   2. discard invalid tombstone_rows 
   3. sum = normal_rows + valid_tombstone_rows + merge_rows
 
-
+### Example and usage
 ```
 CREATE TABLE seller_balance (    
     id int,   

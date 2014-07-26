@@ -54,8 +54,8 @@ For more detail on [implemention](README.md)
 Require use of library to abstract incre/decre, merge, sum
 
 Arithemtic Functions:
-	incre(cf, key, amount, tid(optional)) #tid can be provide to avoid duplicate, otherwise, it will generate a timeuuid
-	decre(cf, key, amount, tid(optional))
+	incre(cf, key, amount) 
+	decre(cf, key, amount)
 	sum(cf, key)
 	merge(cf, key)
 ```

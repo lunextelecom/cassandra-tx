@@ -47,21 +47,8 @@ select ... where id = 3  #now it is visible via regular query
 ## Arithmetic operation
 Concurrent Increment/Decrement operation on columnfamily
 
-### Implementation:
-* Each Arithmetic operation insert a new column containing the value.
-* To determine the value, must sum all columns for the row.
-* Periodic merge of rows can be done to improve performance.
-* Do not mix other field that are not necessary for arithemtic into this cf, eg. home address, name...
-* The column family use wide row for the arithemtic field 
+For more detail on [implemention](README.md)
 ```
-CCREATE TABLE seller_balance (
-	company text,
-	id bigint,
-	updateid timeuuid,
-	amount decimal,
-	ismerged boolean,
-	PRIMARY KEY((company,id), updateid)
-)
 
 
 Require use of library to abstract incre/decre, merge, sum

@@ -2,19 +2,39 @@ Algorithm for Arithmetic
 ===================
 Arithmetic operations is non blocking and it is optimized for update rather than reading.  When an account is incremented, no value are change, only new record are added.  Many records can then be merge back into a single row.  For system that require alot of reading, it is recommend to cache the number.  For high volume system, the number is always changing so any number you get is outdated by the time it reach the client.
 
-##Goal: 
-* There will be more incre/decre than merge.  It make sense to make incre/decre as fast as possible. 
-* Multiple threads/processs can call merge, incre, decre at the same time.
-* Failed operation midpoint must not cause corrupted data
-* Works with Transaction Context.
-
-####Simple Case:
+####Simple Example:
 ```
 [1]     --Incre 3-->    [1,3]
 [1,3]   --Incre 5-->    [1,3,5]
 [1,3,5] --Sum    -->    9
 [1,3,5] --Merge  -->    [9]
 ```
+
+###Goal: 
+* There will be more incre/decre than merge.  It make sense to make incre/decre as fast as possible. 
+* Multiple threads/processs can call merge, incre, decre at the same time.
+* Failed operation midpoint must not cause corrupted data
+* Works with Transaction Context.
+
+### Implementation
+##### incre/decre: single record insert
+  1. insert records
+
+##### merge:
+  1. normal_rows, tombstone_rows, merge_rows = get rows for sum
+  2. discard invalid tombstone_rows 
+  3. sum = normal_rows + valid_tombstone_rows + merge_rows
+  4. newversion = generate timeuuid
+  5. insert tombstone for normal + merged rows with newversion
+  6. insert merge record with sum and newversion.  this operation make tombstone valid
+  7. delete normal and merge records with valid tombstone.  Do not send this request if there isn't any records to delete.
+  8. delete invalid tombstone older than 10 mins if there are any, do not send this request if there isnt' any match
+
+##### sum: single wide row read 
+  1. normal_rows, tombstone_rows, merge_rows = get rows for sum
+  2. discard invalid tombstone_rows 
+  3. sum = normal_rows + valid_tombstone_rows + merge_rows
+
 
 ```
 CREATE TABLE seller_balance (    
@@ -76,25 +96,7 @@ merge insert, tombstone is now valid
 
 
 ```
-* incre/decre: single record insert
-insert records
 
-* merge:
-normal_rows, tombstone_rows, merge_rows = get rows for sum
-discard invalid tombstone_rows 
-sum = normal_rows + valid_tombstone_rows + merge_rows
-
-newversion = generate timeuuid
-insert tombstone for normal + merged rows with newversion
-insert merge record with sum and newversion.  this operation make tombstone valid
-
-delete normal and merge records with valid tombstone.  Do not send this request if there isn't any records to delete.
-delete invalid tombstone older than 10 mins if there are any, do not send this request if there isnt' any match
-
-* sum: single wide row read 
-normal_rows, tombstone_rows, merge_rows = get rows for sum
-discard invalid tombstone_rows 
-sum = normal_rows + valid_tombstone_rows + merge_rows
 
 ###Test Case:
 merge and incre is called at the same time

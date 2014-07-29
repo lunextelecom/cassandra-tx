@@ -9,6 +9,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.ColumnMetadata;
 import com.datastax.driver.core.KeyspaceMetadata;
@@ -22,9 +25,9 @@ import com.lunex.core.utils.Configuration;
 
 public class ContextFactory {
 	
+	private static final Logger logger = LoggerFactory.getLogger(ContextFactory.class);
+
 	private static ContextFactory instance;
-	
-//	private static Map<String, IContext> currentCTX = new HashMap<String, IContext>();
 	
 	/** Cassandra Cluster. */
 	private Cluster cluster;
@@ -36,10 +39,6 @@ public class ContextFactory {
 	
 	private static HashMap<String, TableMetadata> mapTableMetadata = new HashMap<String, TableMetadata>();
 
-//	public static Map<String, IContext> getCurrentCTX() {
-//		return currentCTX;
-//	}
-
 	public static HashMap<String, String> getMapOrgTX() {
 		return mapOrgTX;
 	}
@@ -49,15 +48,10 @@ public class ContextFactory {
 	}
 
 	/**
-	 * Connect to Cassandra Cluster specified by provided node IP address and
-	 * port number.
-	 *
-	 * @param node
-	 *            Cluster node IP address.
-	 * @param port
-	 *            Port of cluster host.
+	 * Connect to Cassandra Cluster specified by provided node IP address and port number.
 	 */
 	public void connect(final String node, final int port) {
+		logger.info("connect cassandra with node " + node, " port:" + port);
 		this.cluster = Cluster.builder().addContactPoint(node).withPort(port)
 				.build();
 		session = cluster.connect();
@@ -65,6 +59,7 @@ public class ContextFactory {
 	}
 
 	public static void init(final String node, final int port, final String keyspace, final String txKeyspace) {
+		logger.info("init ContextFactory with node: " + node, ", port:" + port, ", keyspace: " + keyspace, ", txKeyspace: " +txKeyspace);
 		Cluster cluster = Cluster.builder().addContactPoint(node).withPort(port)
 				.build();
 
@@ -78,10 +73,12 @@ public class ContextFactory {
 		if(metadata != null){
 			keyspaceMetadata = metadata.getKeyspace(keyspace);
 			if(keyspaceMetadata == null){
+				logger.error("Can't find keyspace :" + keyspace);
 				throw new UnsupportedOperationException("Can't find keyspace :" + keyspace);
 			}
 			txKeyspaceMetadata = metadata.getKeyspace(txKeyspace);
 			if(txKeyspaceMetadata == null){
+				logger.error("Can't find keyspace :" + txKeyspace);
 				throw new UnsupportedOperationException("Can't find keyspace :" + txKeyspace);
 			}
 			for (TableMetadata child : keyspaceMetadata.getTables()) {
@@ -100,8 +97,22 @@ public class ContextFactory {
 					}
 					String txName = child.getName()+"_"+checkSum;
 					if(txKeyspaceMetadata.getTable(txName) == null){
+						
 						//create tx column family
-						String cql = child.asCQLQuery();
+						StringBuilder sql = new StringBuilder("CREATE TABLE " + txKeyspace + "." + txName + "(cstx_id_ uuid, cstx_deleted_ boolean, is_arith_ boolean,");
+						Boolean isFirst = true;
+						for (ColumnMetadata col : child.getColumns()) {
+							sql.append(col.getName() + " " + col.getType().toString() + ",");
+						}
+						sql.append(" PRIMARY KEY (cstx_id_");
+						for (ColumnMetadata colKey : child.getPrimaryKey()) {
+							sql.append("," + colKey.getName());
+						}
+						sql.append(")");
+						sql.append(")");
+						
+						//
+						/*String cql = child.asCQLQuery();
 						cql = cql.replace("CREATE TABLE " + keyspace + "." + child.getName() + " ", "CREATE TABLE " + txKeyspace + "." + txName + " ");
 						
 						//
@@ -132,13 +143,14 @@ public class ContextFactory {
 							newPri.append("," + colKey.getName());
 						}
 						newPri.append(")");
-						cql = cql.replace(oldPriTmp, newPri);
+						cql = cql.replace(oldPriTmp, newPri);*/
 						//create tx cf
-						session.execute(cql);
+						session.execute(sql.toString());
 					}
 					mapOrgTX.put(child.getName(), txName);
 					
 				}else{
+					logger.error("checksum failed with cf: " + child.getName());
 					throw new UnsupportedOperationException("checksum failed with cf: " + child.getName());
 				}
 				mapTableMetadata.put(child.getName(), child);
@@ -155,17 +167,13 @@ public class ContextFactory {
 		
 	}
 	
-	/**
-	 * Get Session.
-	 *
-	 * @return session.
-	 */
 	public Session getSession() {
 		return this.session;
 	}
 
 	/** Close cluster. */
 	public void close() {
+		logger.info("cluster closed");
 		cluster.close();
 	}
 
@@ -175,6 +183,7 @@ public class ContextFactory {
 				instance = new ContextFactory();
 			}
 		} catch (Exception e) {
+			logger.error("Failed to create ContextFactory instance");
 			throw new UnsupportedOperationException("Failed to create ContextFactory instance");
 		}
 		return instance;
@@ -189,6 +198,7 @@ public class ContextFactory {
 			String ctxId = UUID.randomUUID().toString();
 			ctx.setCtxId(ctxId);
 		} catch (Exception e) {
+			logger.error("Can't connect node: " + Configuration.getNode() + " port :" + Configuration.getPort() + " keyspace:" + Configuration.getKeyspace());
 			throw new UnsupportedOperationException("Can't connect node: " + Configuration.getNode() + " port :" + Configuration.getPort() + " keyspace:" + Configuration.getKeyspace());
 		}
 		return ctx;
@@ -208,10 +218,12 @@ public class ContextFactory {
 				ctx.setClient(client);
 				ctx.setCtxId(contextId);
 			} catch (Exception e) {
+				logger.error("Can't connect node: " + Configuration.getNode() + " port :" + Configuration.getPort() + " keyspace:" + Configuration.getKeyspace());
 				throw new UnsupportedOperationException("Can't connect node: " + Configuration.getNode() + " port :" + Configuration.getPort() + " keyspace:" + Configuration.getKeyspace());
 			}
 			return ctx;
 		}
+		logger.error("contextId is null");
 		throw new UnsupportedOperationException("contextId is null");
 		
 	}
@@ -229,6 +241,7 @@ public class ContextFactory {
 				return ctx;
 			}
 		} catch (Exception e) {
+			logger.error("contextId :" + contextId + " does not exist");
 			throw new UnsupportedOperationException("contextId :" + contextId + " does not exist");
 		}
 		return null;
@@ -246,7 +259,8 @@ public class ContextFactory {
 				}
 			}
 		} catch (Exception e) {
-			throw new UnsupportedOperationException("getTablesChange failed :" + sql);
+			logger.error("getTablesChanged failed :" + sql);
+			throw new UnsupportedOperationException("getTablesChanged failed :" + sql);
 		}
 		return res;
 	}

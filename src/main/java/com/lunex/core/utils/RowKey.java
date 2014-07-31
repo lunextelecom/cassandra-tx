@@ -78,6 +78,12 @@ public class RowKey {
 			return row.getInet(colName);
 		}else if(colType.equals(DataType.counter().getName().toString()) || colType.equals(DataType.bigint().getName().toString())){
 			return row.getLong(colName);
+		}else if(colType.startsWith("set")){
+			return row.getSet(colName, Object.class);
+		}else if(colType.startsWith("list")){
+			return row.getList(colName, Object.class);
+		}else if(colType.startsWith("map")){
+			return row.getMap(colName, Object.class, Object.class);
 		}
 		return null;
 	}

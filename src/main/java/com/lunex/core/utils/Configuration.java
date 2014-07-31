@@ -14,13 +14,12 @@ public class Configuration {
 	
 	public static int CHECKSUM_LENGTH = 8;
 	
-	public static void loadConfig( String iNode, int iPort, String iKeyspace, String itxKeyspace){
+	public static void loadConfig(String iNode, int iPort, String iKeyspace, String itxKeyspace){
 		node = iNode;
 		port = iPort;
 		keyspace = iKeyspace;
 		txKeyspace = itxKeyspace;
 		ContextFactory.init(iNode, iPort, iKeyspace, itxKeyspace);
-		
 	}
 
 	//get, set

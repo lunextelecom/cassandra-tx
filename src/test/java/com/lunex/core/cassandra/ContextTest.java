@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import org.junit.After;
@@ -14,12 +13,9 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.datastax.driver.core.Cluster;
-import com.datastax.driver.core.ColumnDefinitions;
-import com.datastax.driver.core.ColumnDefinitions.Definition;
 import com.datastax.driver.core.KeyspaceMetadata;
 import com.datastax.driver.core.Metadata;
 import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.lunex.core.utils.Configuration;
 
@@ -29,8 +25,8 @@ import com.lunex.core.utils.Configuration;
  * Unit test for simple App.
  */
 public class ContextTest {
-	private String node = "localhost";
-	private int port = 9042;
+	private static String node = "localhost";
+	private static int port = 9042;
 	Cluster cluster;
 	Session session;
     @BeforeClass
@@ -64,7 +60,7 @@ public class ContextTest {
     }
  
     private static void initEnviroment() {
-    	Cluster cluster = Cluster.builder().addContactPoint("localhost").withPort(9042).build();
+    	Cluster cluster = Cluster.builder().addContactPoint(node).withPort(port).build();
     	Session session = cluster.connect();
     	Metadata metadata = cluster.getMetadata();
     	String keyspace = "test_keyspace";
@@ -107,8 +103,23 @@ public class ContextTest {
     	session.execute(sql);
     	cluster.close();
 	}
-
+    /**
+     * 
+     */
+    @Test
+    public void testSetListMap() {
+    	
+		String sql = "INSERT INTO test(pk, t, v, s) VALUES (0, 0, 'val0', 'static0')";
+		Context ctx = (Context) Context.getContext("dsfds");
+	
+		ctx.execute(sql);
+		sql = "INSERT INTO test(pk, t, v, s) VALUES (0, 1, 'val1', 'static1');";
+		
+		ctx.commit();
+    }
     //test case here
+
+    
     @Test
     public void testCustomer() {
     	
@@ -119,7 +130,6 @@ public class ContextTest {
     	//update
     	sql = "update test_keyspace.customer set age = 26 where username = ?";
     	ctx.execute(sql, "duynguyen");
-    	
     	sql = "select * from test_keyspace.customer where username = ?";
     	ResultSet res1 = session.execute(sql, "duynguyen");
     	int age1 = res1.one().getInt("age");
@@ -161,6 +171,8 @@ public class ContextTest {
     	sql = "select * from test_keyspace.customer where username = ?";
     	res1 = session.execute(sql, "trinhtran");
     	assertEquals(res1.isExhausted(),true);
+    	
+    	ctx.close();
 	}
     
     @Test
@@ -205,6 +217,63 @@ public class ContextTest {
      	ctx.merge("seller_balance", id, "amount");
     	sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
      	assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
+     	
+     	//decrease
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(-5));
+    	ctx.commit();
+    	sum = ctx.sum("seller_balance", id, "amount");
+    	assertEquals(sum, new BigDecimal(5));
+    	ctx.close();
+	}
+    
+    @Test
+    public void testSellerBalanceComplex() {
+    	Context ctx = (Context) Context.start();
+    	String table = "seller_balance_complex";
+    	Map<String, Object> mapKey = new HashMap<String, Object>();
+    	String company = "lunex";
+    	int id = 123;
+    	mapKey.put("company", company);
+    	mapKey.put("id", id);
+    	//increase
+    	ctx.incre(table, mapKey, "amount", new BigDecimal(1));
+    	ctx.incre(table, mapKey, "amount", new BigDecimal(3));
+    	ctx.incre(table, mapKey, "amount", new BigDecimal(5));
+    	ctx.commit();
+    	//sum
+    	BigDecimal sum = ctx.sum(table, mapKey, "amount");
+    	assertEquals(sum, new BigDecimal(9));
+    	//merge
+    	ctx.merge(table, mapKey, "amount");
+    	String sql = "select count(1) as count from test_keyspace.seller_balance_complex where company = '" + company + "' and id = " + id;
+    	assertEquals(session.execute(sql).one().getLong("count") ,1l);
+    	//increase
+    	ctx.incre(table, mapKey, "amount", new BigDecimal(1));
+    	//sum 
+    	sum = ctx.sum(table, mapKey, "amount");
+    	assertEquals(sum, new BigDecimal(10));
+    	ctx.rollback();
+    	//sum
+    	sum = ctx.sum(table, mapKey, "amount");
+    	assertEquals(sum, new BigDecimal(9));
+    	//incre
+    	ctx.incre(table, mapKey, "amount", new BigDecimal(1));
+    	ctx.commit();
+    	sql = "select count(1) as count from test_keyspace.seller_balance_complex where company = '" + company + "' and id = " + id;
+     	assertEquals(session.execute(sql).one().getLong("count") ,2l);
+     	//sum
+    	sum = ctx.sum(table, mapKey, "amount");
+    	assertEquals(sum, new BigDecimal(10));
+    	//merge
+    	ctx.merge(table, mapKey, "amount");
+    	sql = "select count(1) as count from test_keyspace.seller_balance_complex where company = '" + company + "' and id = " + id;
+     	assertEquals(session.execute(sql).one().getLong("count") ,1l);
+     	
+     	//merge
+     	ctx.merge(table, mapKey, "amount");
+    	sql = "select count(1) as count from test_keyspace.seller_balance_complex where company = '" + company + "' and id = " + id;
+     	assertEquals(session.execute(sql).one().getLong("count") ,1l);
+     	ctx.close();
 	}
     
   

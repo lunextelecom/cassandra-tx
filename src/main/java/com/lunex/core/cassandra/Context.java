@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.ColumnMetadata;
+import com.datastax.driver.core.DataType;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.TableMetadata;
@@ -55,7 +56,7 @@ public class Context implements IContext {
 			for (String cftx : setCfTxChanged) {
 				query = new StringBuilder();
 				//get data from tmp table
-				query.append("SELECT * from " + getFullTXCF(cftx) + " WHERE cstx_id_ = ?");
+				query.append("SELECT * from " + Utils.getFullTXCF(cftx) + " WHERE cstx_id_ = ?");
 				final ResultSet results = client.getSession().execute(query.toString(), UUID.fromString(ctxId));
 				if(results != null){
 					while(!results.isExhausted()){
@@ -91,13 +92,6 @@ public class Context implements IContext {
 		
 	}
 
-	private String getFullTXCF(String txCF){
-		return Configuration.getTxKeyspace() + "." + txCF;
-	}
-	
-	private String getFullOriginalCF(String originalCF){
-		return Configuration.getKeyspace() + "." + originalCF;
-	}
 	
 	private BoundStatement commitOthersStatement(String cftx, final Row row) {
 		StringBuilder statement;
@@ -110,7 +104,7 @@ public class Context implements IContext {
 		if(def != null){
 			//generation insert statement for original table
 			statement = new StringBuilder();
-			statement.append("insert into " + getFullOriginalCF(originalCF) + "(");
+			statement.append("insert into " + Utils.getFullOriginalCF(originalCF) + "(");
 			
 			valueSql = new StringBuilder(" values(");
 			
@@ -145,8 +139,8 @@ public class Context implements IContext {
 				BoundStatement ps = client.getSession().prepare(statement.toString()).bind(params.toArray());
 				return ps;
 			} catch (Exception e) {
-				logger.error("commit failed, statement : " + statement.toString());
-				throw new UnsupportedOperationException("commit failed, statement : " + statement.toString());
+				logger.error("commit failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
+				throw new UnsupportedOperationException("commit failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
 			}
 		}
 		return null;
@@ -158,7 +152,7 @@ public class Context implements IContext {
 		String originalCF = cftx.substring(0, cftx.length()-(Configuration.CHECKSUM_LENGTH+1));
 		//generate delete statement
 		statement = new StringBuilder();
-		statement.append("delete from " + getFullOriginalCF(originalCF));
+		statement.append("delete from " + Utils.getFullOriginalCF(originalCF));
 		Boolean isFirst = true;
 		TableMetadata def = ContextFactory.getMapTableMetadata().get(originalCF);
 		List<Object> params = new ArrayList<Object>();
@@ -173,13 +167,14 @@ public class Context implements IContext {
 				statement.append(" and " + colName + " = ?");
 			}
 			params.add(RowKey.getValue(row, colType, colName));
+			
 		}
 		try {
 			BoundStatement ps = client.getSession().prepare(statement.toString()).bind(params.toArray());
 			return ps;
 		} catch (Exception e) {
-			logger.error("commit failed, statement : " + statement.toString());
-			throw new UnsupportedOperationException("commit failed, statement : " + statement.toString());
+			logger.error("commit failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
+			throw new UnsupportedOperationException("commit failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
 		}
 	}
 
@@ -196,7 +191,8 @@ public class Context implements IContext {
 			}
 		}
 	}
-	public void rollback() {
+	
+	private void discardContext(Boolean isClosed) {
 		//rollback all changes, delete tmp table has cstx_id_ = ctxId
 		logger.info("context rollback");
 		Set<String> setCfTxChanged = getTablesChange();
@@ -205,7 +201,7 @@ public class Context implements IContext {
 		if(setCfTxChanged != null && !setCfTxChanged.isEmpty()){
 			for (String cf : setCfTxChanged) {
 				try {
-					bs = client.getSession().prepare("delete from " + getFullTXCF(cf) + " where cstx_id_ = ?").bind(UUID.fromString(ctxId));
+					bs = client.getSession().prepare("delete from " + Utils.getFullTXCF(cf) + " where cstx_id_ = ?").bind(UUID.fromString(ctxId));
 					if(bs != null){
 						batch.add(bs);
 					}
@@ -214,12 +210,22 @@ public class Context implements IContext {
 					throw new UnsupportedOperationException("rollback failed");
 				}
 			}
-			bs = client.getSession().prepare("delete from " + getFullTXCF("cstx_context")  + " where contextid = ?").bind(UUID.fromString(ctxId));
-			if(bs != null){
-				batch.add(bs);
+			if(isClosed){
+				bs = client.getSession().prepare("delete from " + Utils.getFullTXCF("cstx_context")  + " where contextid = ?").bind(UUID.fromString(ctxId));
+				if(bs != null){
+					batch.add(bs);
+				}
 			}
 			executeBatch(batch, true);
 		}
+	}
+
+	public void rollback() {
+		discardContext(false);
+	}
+	
+	public void close() {
+		discardContext(true);
 	}
 	
 	public static IContext start() {
@@ -253,7 +259,7 @@ public class Context implements IContext {
 				int index = tableName.indexOf(Configuration.getKeyspace().toLowerCase() + ".");
 				if(index == -1){
 					//input doesnot contain keyspace
-					sql = sql.replaceFirst(tableName, getFullOriginalCF(tableName));
+					sql = sql.replaceFirst(tableName, Utils.getFullOriginalCF(tableName));
 				}else{
 					tableName = tableName.replaceFirst(Configuration.getKeyspace().toLowerCase()+".", "");
 				}
@@ -278,8 +284,8 @@ public class Context implements IContext {
 				executeInsertStatement(ctxId, (Insert) stm, isArith, args);
 			}
 		} catch (Exception e) {
-			logger.error("context executed failed");
-			throw new UnsupportedOperationException();
+			logger.error("context executed failed"+ ". Message :" + e.getMessage());
+			throw new UnsupportedOperationException(". Message :" + e.getMessage());
 		}
 		return res;
 		
@@ -333,7 +339,7 @@ public class Context implements IContext {
 				params = new ArrayList<Object>();
 				insertSql = new StringBuilder();
 				valueSql = new StringBuilder();
-				insertSql.append("insert into " + getFullTXCF(txName) + "(cstx_id_,is_arith_");
+				insertSql.append("insert into " + Utils.getFullTXCF(txName) + "(cstx_id_,is_arith_");
 				valueSql.append(" values(?,?");
 				params.add(UUID.fromString(ctxId));
 				params.add(isArith);
@@ -354,7 +360,7 @@ public class Context implements IContext {
 		}
 			
 		//3. execute update statement on tmp table
-		StringBuilder updateSql = new StringBuilder(sql.replaceFirst(info.getTable().getWholeTableName(), getFullTXCF(txName)) + " and cstx_id_ = ?");
+		StringBuilder updateSql = new StringBuilder(sql.replaceFirst(info.getTable().getWholeTableName(), Utils.getFullTXCF(txName)) + " and cstx_id_ = ?");
 		List<Object> params = new ArrayList<Object>();
 		for(int i = 0; i < args.length; i++){
 			params.add(args[i]);
@@ -392,7 +398,7 @@ public class Context implements IContext {
 		//2. get data from tmp table
 		TableMetadata def = ContextFactory.getMapTableMetadata().get(tableName);
 		String txName = ContextFactory.getMapOrgTX().get(tableName);
-		StringBuilder txSql = new StringBuilder(sql.toString().replaceFirst(getFullOriginalCF(tableName), getFullTXCF(txName)));
+		StringBuilder txSql = new StringBuilder(sql.toString().replaceFirst(Utils.getFullOriginalCF(tableName), Utils.getFullTXCF(txName)));
 		
 		txSql.insert(txSql.indexOf("where", txSql.indexOf(txName)) + 5, " cstx_id_ = ? and ");
 		List<Object> params = new ArrayList<Object>();
@@ -461,7 +467,7 @@ public class Context implements IContext {
 					params = new ArrayList<Object>();
 					insertSql = new StringBuilder();
 					valueSql = new StringBuilder();
-					insertSql.append("insert into " +getFullTXCF(txName) + "(cstx_id_, cstx_deleted_");
+					insertSql.append("insert into " +Utils.getFullTXCF(txName) + "(cstx_id_, cstx_deleted_");
 					valueSql.append(" values(?, true");
 					params.add(UUID.fromString(contextId));
 					for (ColumnMetadata col : def.getPrimaryKey()) {
@@ -530,23 +536,27 @@ public class Context implements IContext {
 	
 	private void updateTablesChange(Set<String> input, String tableName){
 		if(!input.contains(tableName)){
-			input.add(tableName);
-			StringBuilder sql = new StringBuilder("update " + getFullTXCF("cstx_context") + " set lstcfname = ? where contextid = ?");
+			Set<String> lstTable = new HashSet<String>();
+			for (String child : input) {
+				lstTable.add(child);
+			}
+			lstTable.add(tableName);
+			StringBuilder sql = new StringBuilder("update " + Utils.getFullTXCF("cstx_context") + " set lstcfname = ?, updateid=now() where contextid = ?");
 			try {
 				List<Object> params = new ArrayList<Object>();
-				params.add(input);
+				params.add(lstTable);
 				params.add(UUID.fromString(ctxId));
 				client.getSession().execute(sql.toString(), params.toArray());
 			} catch (Exception e) {
-				logger.error("updateTablesChange failed :" + sql);
-				throw new UnsupportedOperationException("updateTablesChange failed :" + sql);
+				logger.error("updateTablesChange failed :" + sql+ ". Message :" + e.getMessage());
+				throw new UnsupportedOperationException("updateTablesChange failed :" + sql+ ". Message :" + e.getMessage());
 			}
 		}
 	}
 	
 	private Set<String> getTablesChange(){
 		Set<String> res = new HashSet<String>();
-		StringBuilder sql = new StringBuilder("select * from " + getFullTXCF("cstx_context") + " where contextid = ?");
+		StringBuilder sql = new StringBuilder("select * from " + Utils.getFullTXCF("cstx_context") + " where contextid = ?");
 		try {
 			List<Object> params = new ArrayList<Object>();
 			params.add(UUID.fromString(ctxId));
@@ -556,227 +566,12 @@ public class Context implements IContext {
 				res = row.getSet("lstcfname", String.class);
 			}
 		} catch (Exception e) {
-			logger.error("getTablesChange failed :" + sql);
-			throw new UnsupportedOperationException("getTablesChange failed :" + sql);
+			logger.error("getTablesChange failed :" + sql+ ". Message :" + e.getMessage());
+			throw new UnsupportedOperationException("getTablesChange failed :" + sql+ ". Message :" + e.getMessage());
 		}
 		return res;
 	}
 
-	public void incre_v1(String cf, Object key, String column, BigDecimal amount){
-		try {
-			StringBuilder statement = new StringBuilder();
-			StringBuilder valueSql = new StringBuilder();
-			cf = cf.replaceFirst(Configuration.getKeyspace() + ".","");
-			TableMetadata def = ContextFactory.getMapTableMetadata().get(cf);
-			if (def == null) {
-				throw new Exception( "Exception : can not get getMapTableMetadata() with " + cf);
-			}
-			statement.append("insert into " + cf + "(");
-			valueSql.append(" values(");
-			String version = getLastestVersion(cf, key);
-			Boolean isHashMap = false;
-			HashMap<String, Object> mapKey = null;
-			List<Object> params = new ArrayList<Object>();
-			if(key instanceof HashMap<?, ?>){
-				isHashMap = true;
-				mapKey = (HashMap<String, Object>) key;
-			}
-			if (!isHashMap) {
-				valueSql.append("?,");
-				params.add(key);
-				statement.append(def.getPartitionKey().get(0).getName() + ",");
-			} else {
-				for (ColumnMetadata colKey : def.getPrimaryKey()) {
-					statement.append(colKey.getName() + ",");
-					if (colKey.getName().equalsIgnoreCase("updateid")) {
-						valueSql.append("now(),");
-					} else {
-						valueSql.append("?,");
-						params.add(mapKey.get(colKey.getName()));
-					}
-				}
-			}
-			statement.append(" version, " + column + ")");
-			valueSql.append("?,?)");
-			params.add(version);
-			params.add(amount);
-			statement.append(valueSql);
-			execute(statement.toString(), true, params.toArray());
-		} catch (Exception ex) {
-			throw new UnsupportedOperationException("incre method failed");
-		}
-	}
-	
-	public String getLastestVersion(String cf, Object key){
-		try {
-			StringBuilder statement = new StringBuilder();
-			cf = cf.replaceFirst(Configuration.getKeyspace() + ".","");
-			TableMetadata def = ContextFactory.getMapTableMetadata().get(cf);
-			if (def == null) {
-				throw new Exception( "Exception : can not get getMapTableMetadata() with " + cf);
-			}
-			statement.append("select * from " + getFullOriginalCF(cf) + " where ");
-			Boolean isHashMap = false;
-			HashMap<String, Object> mapKey = null;
-			List<Object> params = new ArrayList<Object>();
-			if(key instanceof HashMap<?, ?>){
-				isHashMap = true;
-				mapKey = (HashMap<String, Object>) key;
-			}
-			if (!isHashMap) {
-				statement.append(def.getPartitionKey().get(0).getName() + ",");
-				params.add(key);
-			} else {
-				Boolean isFirst = true;
-				for (ColumnMetadata colKey : def.getPrimaryKey()) {
-					if (!colKey.getName().equalsIgnoreCase("updateid")) {
-						if(isFirst){
-							isFirst = false;
-							statement.append(colKey.getName() + " = ?");
-						}else{
-							statement.append(" and " + colKey.getName() + " = ?");
-						}
-						params.add(mapKey.get(colKey.getName()));
-					}
-				}
-			}
-			statement.append(" limit 1 ");
-			List<Row> lstRow = execute(statement.toString(), params.toArray());
-			if(lstRow != null && lstRow.size()>0){
-				String version = lstRow.get(0).getString("version");
-				return version.split("_")[0];
-			}
-			return "1_Head";
-		} catch (Exception ex) {
-			throw new UnsupportedOperationException("incre method failed");
-		}
-	}
-
-	public void merge_v1(String cf, Object key, String mergedColumn) {
-		/**
-		 * 1. lstRec = get all record of lastest version
-		 * 2. sum lstRec by  mergedCoulmn
-		 * 3. update amount of lastest record 
-		 * 4. delete unused records
-		 */
-		cf = cf.split(".")[0];
-		//""
-		TableMetadata def = ContextFactory.getMapTableMetadata().get(cf);
-		StringBuilder selectSql = new StringBuilder("select * from " + getFullOriginalCF(cf) + " where ");
-		Boolean isHashMap = false;
-		HashMap<String, Object> mapKey = null;
-		List<Object> params = new ArrayList<Object>();
-		if(key instanceof HashMap<?, ?>){
-			isHashMap = true;
-			mapKey = (HashMap<String, Object>) key;
-		}
-		if (!isHashMap) {
-			selectSql.append(def.getPrimaryKey().get(0).getName() + " = ?");
-			params.add(key);
-		} else {
-			Boolean isFirst = true;
-			for (ColumnMetadata colKey : def.getPrimaryKey()) {
-				if(!colKey.getName().equalsIgnoreCase("updateid")){
-					if(isFirst){
-						isFirst = false;
-						selectSql.append(colKey.getName() + " = ?");
-					}else{
-						selectSql.append(" and " + colKey.getName() + " = ?");
-					}
-					params.add(mapKey.get(colKey.getName()));
-				}
-			}
-		}
-		ResultSet resultSet = client.getSession().execute(selectSql.toString(), params.toArray());
-		Row lastestRow = null;
-		BigDecimal amount = new BigDecimal(0);
-		Boolean isFirst = true;
-		if(resultSet != null){
-			while(!resultSet.isExhausted()){
-				final Row row = resultSet.one();
-				if(isFirst){
-					isFirst  = false;
-					lastestRow = row;
-				}
-				amount = amount.add(row.getDecimal(mergedColumn));
-				if(row.getString("version").contains("Head")){
-					break;
-				}
-			}
-		}
-		//update lastest row
-		StringBuilder updateSql = new StringBuilder("update " + getFullOriginalCF(cf) + " set amount = ? where ");
-		params.add(amount);
-		params = new ArrayList<Object>();
-		if (!isHashMap) {
-			updateSql.append(def.getPrimaryKey().get(0).getName() + " = ?");
-			params.add(RowKey.getValue(lastestRow, def.getPrimaryKey().get(0).getType().getName().toString(), def.getPrimaryKey().get(0).getName()));
-		} else {
-			isFirst = true;
-			for (ColumnMetadata colKey : def.getPrimaryKey()) {
-				if(isFirst){
-					isFirst = false;
-					updateSql.append(colKey.getName() + " = ?");
-				}else{
-					updateSql.append(" and " + colKey.getName() + " = ?");
-				}
-				params.add(RowKey.getValue(lastestRow, colKey.getType().getName().toString(), colKey.getName()));
-			}
-		}
-		client.getSession().execute(updateSql.toString(), params.toArray());
-	}
-
-	public BigDecimal sum_v1(String cf, Object key, String sumColumn) {
-		/* key : partitionkey(required) + clustering(optional)
-		 * 1. lstRec = get all record of cf by key
-		 * 2. sum lstRec by  sumColumn
-		 * */
-		
-		//1. lstRec = get all record of cf by key
-		int index = cf.indexOf(".");
-		if(index != -1){
-			cf = cf.substring(cf.indexOf(".")+1);
-		}
-		TableMetadata def = ContextFactory.getMapTableMetadata().get(cf);
-		StringBuilder selectSql = new StringBuilder("select * from " + getFullOriginalCF(cf) + " where ");
-		
-		Boolean isHashMap = false;
-		HashMap<String, Object> mapKey = null;
-		List<Object> params = new ArrayList<Object>();
-		if(key instanceof HashMap<?, ?>){
-			isHashMap = true;
-			mapKey = (HashMap<String, Object>) key;
-		}
-		if (!isHashMap) {
-			selectSql.append(def.getPartitionKey().get(0).getName() + ",");
-			params.add(key);
-		} else {
-			Boolean isFirst = true;
-			for (ColumnMetadata colKey : def.getPrimaryKey()) {
-				if (!colKey.getName().equalsIgnoreCase("updateid")) {
-					if(isFirst){
-						isFirst = false;
-						selectSql.append(colKey.getName() + " = ?");
-					}else{
-						selectSql.append(" and " + colKey.getName() + " = ?");
-					}
-					params.add(mapKey.get(colKey.getName()));
-				}
-			}
-		}
-		
-		//2. sum lstRec 
-		BigDecimal amount = new BigDecimal(0);
-		List<Row> resultSet = execute(selectSql.toString(), true, params.toArray());
-		if(resultSet != null){
-			for (Row row : resultSet) {
-				amount = amount.add(row.getDecimal(sumColumn));
-			}
-		}
-		return amount;
-		
-	}
-	
 	public void merge(String cf, Object key, String mergedColumn) {
 		try {
 			/**
@@ -884,7 +679,7 @@ public class Context implements IContext {
 			logger.info("8.(cassandra operation, sometimes) delete invalid tombstone older than 10 mins if there are any, do not send this request if there isnt' any match");
 			Collection<Row> lstDelete = new ArrayList<Row>();
 			for (Row row : lstInvalidTS) {
-				int minutes = minutesDiff(row.getUUID("updateid"), lastestUpdateid);
+				int minutes = Utils.minutesDiff(row.getUUID("updateid"), lastestUpdateid);
 				if(minutes >=10){
 					lstDelete.add(row);
 					
@@ -892,8 +687,8 @@ public class Context implements IContext {
 			}
 			artDeleteNormalRecord(cf, lstDelete);
 		} catch (Exception e) {
-			logger.error("merge failed " + e.getMessage());
-			throw new UnsupportedOperationException("merge failed " + e.getMessage());
+			logger.error("merge failed " + e.getMessage()+ ". Message :" + e.getMessage());
+			throw new UnsupportedOperationException("merge failed " + e.getMessage()+ ". Message :" + e.getMessage());
 		}
 	}
 
@@ -950,15 +745,15 @@ public class Context implements IContext {
 			}
 			return amount;
 		} catch (Exception e) {
-			logger.error("sum failed " + e.getMessage());
-			throw new UnsupportedOperationException("sum failed " + e.getMessage());
+			logger.error("sum failed " + e.getMessage()+ ". Message :" + e.getMessage());
+			throw new UnsupportedOperationException("sum failed " + e.getMessage()+ ". Message :" + e.getMessage());
 		}
 	}
 
 	private StringBuilder artCreateSelectStatement(String cf, Object key,
 			List<Object> params) {
 		TableMetadata def = ContextFactory.getMapTableMetadata().get(cf);
-		StringBuilder selectSql = new StringBuilder("select * from " + getFullOriginalCF(cf) + " where ");
+		StringBuilder selectSql = new StringBuilder("select * from " + Utils.getFullOriginalCF(cf) + " where ");
 		Boolean isHashMap = false;
 		HashMap<String, Object> mapKey = null;
 		if(key instanceof HashMap<?, ?>){
@@ -973,7 +768,7 @@ public class Context implements IContext {
 			for (ColumnMetadata colKey : def.getPrimaryKey()) {
 				if(!colKey.getName().equalsIgnoreCase("updateid")
 					&& !colKey.getName().equalsIgnoreCase("type")
-					&& !colKey.getName().equalsIgnoreCase("version ")
+					&& !colKey.getName().equalsIgnoreCase("version")
 					){
 					if(isFirst){
 						isFirst = false;
@@ -1008,7 +803,7 @@ public class Context implements IContext {
 		String originalCF = cf;
 		//generate delete statement
 		statement = new StringBuilder();
-		statement.append("delete from " + getFullOriginalCF(originalCF));
+		statement.append("delete from " + Utils.getFullOriginalCF(originalCF));
 		Boolean isFirst = true;
 		TableMetadata def = ContextFactory.getMapTableMetadata().get(originalCF);
 		List<Object> params = new ArrayList<Object>();
@@ -1052,8 +847,8 @@ public class Context implements IContext {
 			}
 			executeBatch(batch, true);
 		} catch (Exception e) {
-			logger.error("commit failed, statement : " + statement.toString());
-			throw new UnsupportedOperationException("commit failed, statement : " + statement.toString());
+			logger.error("deleteAirthMeticRecord failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
+			throw new UnsupportedOperationException("deleteAirthMeticRecord failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
 		}
 	}
 
@@ -1065,7 +860,7 @@ public class Context implements IContext {
 		if(def != null){
 			//generation insert statement for original table
 			statement = new StringBuilder();
-			statement.append("insert into " + getFullOriginalCF(cf) + "(");
+			statement.append("insert into " + Utils.getFullOriginalCF(cf) + "(");
 			
 			valueSql = new StringBuilder(" values(");
 			
@@ -1108,8 +903,8 @@ public class Context implements IContext {
 				}
 				executeBatch(batch, true);
 			} catch (Exception e) {
-				logger.error("executeBatch failed, statement : " + statement.toString());
-				throw new UnsupportedOperationException("executeBatch failed, statement : " + statement.toString());
+				logger.error("executeBatch failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
+				throw new UnsupportedOperationException("executeBatch failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
 			}
 		}
 	}
@@ -1123,7 +918,7 @@ public class Context implements IContext {
 			if (def == null) {
 				throw new Exception( "Exception : can not get getMapTableMetadata() with " + cf);
 			}
-			statement.append("insert into " + getFullOriginalCF(cf) + "(");
+			statement.append("insert into " + Utils.getFullOriginalCF(cf) + "(");
 			valueSql.append(" values(");
 			Boolean isHashMap = false;
 			HashMap<String, Object> mapKey = null;
@@ -1140,7 +935,7 @@ public class Context implements IContext {
 				for (ColumnMetadata colKey : def.getPrimaryKey()) {
 					if(!colKey.getName().equalsIgnoreCase("updateid")
 							&& !colKey.getName().equalsIgnoreCase("type")
-							&& !colKey.getName().equalsIgnoreCase("version ")
+							&& !colKey.getName().equalsIgnoreCase("version")
 							){
 						statement.append(colKey.getName() + ",");
 						valueSql.append("?,");
@@ -1156,7 +951,7 @@ public class Context implements IContext {
 			statement.append(valueSql);
 			client.getSession().execute(statement.toString(), params.toArray());
 		} catch (Exception ex) {
-			throw new UnsupportedOperationException("insertMergeRow method failed");
+			throw new UnsupportedOperationException("insertMergeRow method failed"+ ". Message :" + ex.getMessage());
 		}
 	}
 	
@@ -1186,7 +981,7 @@ public class Context implements IContext {
 				for (ColumnMetadata colKey : def.getPrimaryKey()) {
 					if(!colKey.getName().equalsIgnoreCase("updateid")
 							&& !colKey.getName().equalsIgnoreCase("type")
-							&& !colKey.getName().equalsIgnoreCase("version ")
+							&& !colKey.getName().equalsIgnoreCase("version")
 							){
 						statement.append(colKey.getName() + ",");
 						valueSql.append("?,");
@@ -1222,13 +1017,5 @@ public class Context implements IContext {
 		this.client = client;
 	}
 
-
-	public static int minutesDiff(UUID earlierDate, UUID laterDate)
-	{
-	    if( earlierDate == null || laterDate == null ) return 0;
-
-	    return Math.abs((int)((UUIDs.unixTimestamp(laterDate)/60000) - (UUIDs.unixTimestamp(earlierDate)/60000)));
-	}
-	
 }
 

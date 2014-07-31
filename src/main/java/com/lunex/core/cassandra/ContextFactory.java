@@ -1,25 +1,25 @@
 package com.lunex.core.cassandra;
 
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.Cluster.Builder;
 import com.datastax.driver.core.ColumnMetadata;
+import com.datastax.driver.core.HostDistance;
 import com.datastax.driver.core.KeyspaceMetadata;
 import com.datastax.driver.core.Metadata;
+import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.TableMetadata;
+import com.datastax.driver.core.policies.ConstantReconnectionPolicy;
+import com.datastax.driver.core.policies.DowngradingConsistencyRetryPolicy;
 import com.google.common.base.Strings;
 import com.lunex.core.utils.Configuration;
 
@@ -47,17 +47,6 @@ public class ContextFactory {
 		return mapTableMetadata;
 	}
 
-	/**
-	 * Connect to Cassandra Cluster specified by provided node IP address and port number.
-	 */
-	public void connect(final String node, final int port) {
-		logger.info("connect cassandra with node " + node, " port:" + port);
-		this.cluster = Cluster.builder().addContactPoint(node).withPort(port)
-				.build();
-		session = cluster.connect();
-		
-	}
-
 	public static void init(final String node, final int port, final String keyspace, final String txKeyspace) {
 		logger.info("init ContextFactory with node: " + node, ", port:" + port, ", keyspace: " + keyspace, ", txKeyspace: " +txKeyspace);
 		Cluster cluster = Cluster.builder().addContactPoint(node).withPort(port)
@@ -83,13 +72,13 @@ public class ContextFactory {
 			}
 			for (TableMetadata child : keyspaceMetadata.getTables()) {
 				//check tx table existed
-				String checkSum = checkSumColumnFamily(child.getName());
+				String checkSum = Utils.checkSumColumnFamily(child.getName());
 				if(!Strings.isNullOrEmpty(checkSum)){
 					//check tx table
 					if(child.getName().length() > Configuration.CHECKSUM_LENGTH){
 						String tCheckSum = child.getName().substring(child.getName().length()-Configuration.CHECKSUM_LENGTH, child.getName().length());
 						String tName = child.getName().substring(0, child.getName().length()-(Configuration.CHECKSUM_LENGTH+1));
-						String check = checkSumColumnFamily(tName);
+						String check = Utils.checkSumColumnFamily(tName);
 						if(!Strings.isNullOrEmpty(check) && check.equals(tCheckSum)){
 							//child is tx cf
 							continue;
@@ -100,7 +89,6 @@ public class ContextFactory {
 						
 						//create tx column family
 						StringBuilder sql = new StringBuilder("CREATE TABLE " + txKeyspace + "." + txName + "(cstx_id_ uuid, cstx_deleted_ boolean, is_arith_ boolean,");
-						Boolean isFirst = true;
 						for (ColumnMetadata col : child.getColumns()) {
 							sql.append(col.getName() + " " + col.getType().toString() + ",");
 						}
@@ -111,39 +99,6 @@ public class ContextFactory {
 						sql.append(")");
 						sql.append(")");
 						
-						//
-						/*String cql = child.asCQLQuery();
-						cql = cql.replace("CREATE TABLE " + keyspace + "." + child.getName() + " ", "CREATE TABLE " + txKeyspace + "." + txName + " ");
-						
-						//
-						StringBuilder oldPriTmp = new StringBuilder("PRIMARY KEY (");
-						List<ColumnMetadata> lstParKey = child.getPartitionKey();
-						if(lstParKey != null && lstParKey.size() >1){
-							oldPriTmp.append("(");
-							Boolean isFirst = true;
-							for (ColumnMetadata colKey : child.getPartitionKey()) {
-								if(isFirst){
-									isFirst = false;
-									oldPriTmp.append(colKey.getName());
-								}else{
-									oldPriTmp.append(", " + colKey.getName());
-								}
-							}
-							oldPriTmp.append(")");
-						}else{
-							oldPriTmp.append(child.getPartitionKey().get(0).getName());
-						}
-						for (ColumnMetadata colKey : child.getClusteringColumns()) {
-							oldPriTmp.append(", " + colKey.getName());
-						}
-						oldPriTmp.append(")");
-						//
-						StringBuilder newPri = new StringBuilder("cstx_id_ uuid, cstx_deleted_ boolean, PRIMARY KEY (cstx_id_");
-						for (ColumnMetadata colKey : child.getPrimaryKey()) {
-							newPri.append("," + colKey.getName());
-						}
-						newPri.append(")");
-						cql = cql.replace(oldPriTmp, newPri);*/
 						//create tx cf
 						session.execute(sql.toString());
 					}
@@ -158,7 +113,7 @@ public class ContextFactory {
 			String txName = "cstx_context";
 			if(txKeyspaceMetadata.getTable(txName) == null){
 				//create cstx_context in tx_keyspace if not exists
-				String sql = "CREATE TABLE " + txKeyspace + ".cstx_context (contextid uuid, lstcfname set<text>, createdid timeuuid, PRIMARY KEY (contextid))";
+				String sql = "CREATE TABLE " + txKeyspace + ".cstx_context (contextid uuid, lstcfname set<text>, updateid timeuuid, PRIMARY KEY (contextid))";
 				session.execute(sql);
 			}
 		}
@@ -173,54 +128,68 @@ public class ContextFactory {
 
 	/** Close cluster. */
 	public void close() {
-		logger.info("cluster closed");
+		logger.info("context closed");
 		cluster.close();
 	}
 
 	public static ContextFactory getInstance(){
 		try {
 			if(instance == null){
+				/*instance = new ContextFactory();
+				instance.cluster = Cluster.builder().addContactPoint(Configuration.getNode()).withPort(Configuration.getPort())
+						.build();
+
+				instance.session = instance.cluster.connect();*/
 				instance = new ContextFactory();
+				Builder builder = Cluster.builder();
+		        builder.addContactPoint(Configuration.getNode()).withPort(Configuration.getPort());
+
+		        PoolingOptions options = new PoolingOptions();
+		        options.setCoreConnectionsPerHost(HostDistance.LOCAL, options.getMaxConnectionsPerHost(HostDistance.LOCAL));
+		        builder.withPoolingOptions(options);
+		        
+				instance.cluster = builder
+		                .withRetryPolicy(DowngradingConsistencyRetryPolicy.INSTANCE)
+		                .withReconnectionPolicy(new ConstantReconnectionPolicy(100L))
+		                .build();
+
+				instance.session = instance.cluster.connect();
+				
 			}
 		} catch (Exception e) {
-			logger.error("Failed to create ContextFactory instance");
-			throw new UnsupportedOperationException("Failed to create ContextFactory instance");
+			logger.error("Failed to create ContextFactory instance"+ ". Message :" + e.getMessage());
+			throw new UnsupportedOperationException("Failed to create ContextFactory instance"+ ". Message :" + e.getMessage());
 		}
 		return instance;
 	}
 
 	public static IContext start(){
-		Context ctx = new Context();
 		try {
-			ContextFactory client = ContextFactory.getInstance();
-			client.connect(Configuration.getNode(), Configuration.getPort());
-			ctx.setClient(client);
 			String ctxId = UUID.randomUUID().toString();
-			ctx.setCtxId(ctxId);
+			return getContext(ctxId);
 		} catch (Exception e) {
-			logger.error("Can't connect node: " + Configuration.getNode() + " port :" + Configuration.getPort() + " keyspace:" + Configuration.getKeyspace());
+			logger.error("Can't connect node: " + Configuration.getNode() + " port :" + Configuration.getPort() + " keyspace:" + Configuration.getKeyspace() + ". Message :" + e.getMessage());
 			throw new UnsupportedOperationException("Can't connect node: " + Configuration.getNode() + " port :" + Configuration.getPort() + " keyspace:" + Configuration.getKeyspace());
 		}
-		return ctx;
 	}
 
 	public static IContext start(String contextId){
 		if(!Strings.isNullOrEmpty(contextId)){
 			Context ctx = new Context();
+			ContextFactory client = ContextFactory.getInstance();
 			try {
-				ContextFactory client = ContextFactory.getInstance();
-				client.connect(Configuration.getNode(), Configuration.getPort());
-				HashSet<String> currentCTX = getCurrentContext(client);
-				contextId = generateContextIdFromString(contextId);
-				if(currentCTX.contains(contextId)){
-					throw new UnsupportedOperationException("contextId :" + contextId + " is existed");
-				}
-				ctx.setClient(client);
-				ctx.setCtxId(contextId);
+				contextId = Utils.generateContextIdFromString(contextId);
 			} catch (Exception e) {
 				logger.error("Can't connect node: " + Configuration.getNode() + " port :" + Configuration.getPort() + " keyspace:" + Configuration.getKeyspace());
 				throw new UnsupportedOperationException("Can't connect node: " + Configuration.getNode() + " port :" + Configuration.getPort() + " keyspace:" + Configuration.getKeyspace());
 			}
+			Boolean isExist = isExistContext(contextId);
+			if(isExist){
+				throw new UnsupportedOperationException("contextId :" + contextId + " is existed");
+			}
+			ctx.setClient(client);
+			ctx.setCtxId(contextId);
+			insertContextRecord(contextId, client);
 			return ctx;
 		}
 		logger.error("contextId is null");
@@ -229,78 +198,54 @@ public class ContextFactory {
 	}
 
 	public static IContext getContext(String contextId){
+		String oldContext = contextId;
 		try {
 			ContextFactory client = ContextFactory.getInstance();
-			client.connect(Configuration.getNode(), Configuration.getPort());
-			contextId = generateContextIdFromString(contextId);
-			HashSet<String> currentCTX = getCurrentContext(client);
-			if(currentCTX.contains(contextId)){
-				Context ctx = new Context();
-				ctx.setClient(client);
-				ctx.setCtxId(contextId);
-				return ctx;
+			contextId = Utils.generateContextIdFromString(contextId);
+			Boolean isExist = isExistContext(contextId);
+			if(isExist){
+				logger.error("contextId :" + oldContext + " is existed");
+				throw new UnsupportedOperationException("contextId :" + oldContext + " is existed");
 			}
+			Context ctx = new Context();
+			ctx.setClient(client);
+			ctx.setCtxId(contextId);
+			insertContextRecord(contextId, client);
+			
+			return ctx;
 		} catch (Exception e) {
-			logger.error("contextId :" + contextId + " does not exist");
-			throw new UnsupportedOperationException("contextId :" + contextId + " does not exist");
+			logger.error("get context:" + oldContext + " failed"+ ". Message :" + e.getMessage());
+			throw new UnsupportedOperationException("get context:" + oldContext + " failed"+ ". Message :" + e.getMessage());
 		}
-		return null;
 	}
 	
-	private static HashSet<String> getCurrentContext(ContextFactory client){
-		HashSet<String> res = new HashSet<String>();
-		StringBuilder sql = new StringBuilder("select * from " + Configuration.getTxKeyspace() + "." + "cstx_context");
+	private static void insertContextRecord(String contextId,
+			ContextFactory client) {
+		StringBuilder sql = new StringBuilder("update " + Utils.getFullTXCF("cstx_context") + " set updateid=now() where contextid = ?");
 		try {
-			ResultSet resultSet = client.getSession().execute(sql.toString());
+			List<Object> params = new ArrayList<Object>();
+			params.add(UUID.fromString(contextId));
+			client.getSession().execute(sql.toString(), params.toArray());
+		} catch (Exception e) {
+			logger.error("insertContextRecord failed :" + sql+ ". Message :" + e.getMessage());
+			throw new UnsupportedOperationException("insertContextRecord failed :" + sql+ ". Message :" + e.getMessage());
+		}
+	}
+	
+	private static Boolean isExistContext(String contextId){
+		StringBuilder sql = new StringBuilder("select * from " + Utils.getFullTXCF("cstx_context") + " where contextId = ?");
+		try {
+			ResultSet resultSet = ContextFactory.getInstance().getSession().execute(sql.toString(), UUID.fromString(contextId));
 			if (resultSet != null && !resultSet.isExhausted()) {
-				while(!resultSet.isExhausted()){
-					final Row row = resultSet.one();
-					res.add(row.getUUID("contextId").toString());
+				if(!resultSet.isExhausted()){
+					return true;
 				}
 			}
 		} catch (Exception e) {
-			logger.error("getTablesChanged failed :" + sql);
-			throw new UnsupportedOperationException("getTablesChanged failed :" + sql);
+			logger.error("function isExistContext(" + contextId +") failed"+ ". Message :" + e.getMessage());
+			throw new UnsupportedOperationException("function isExistContext(" + contextId +") failed"+ ". Message :" + e.getMessage());
 		}
-		return res;
-	}
-
-	public static String generateMD5Hash(String input) throws Exception {
-		MessageDigest md = MessageDigest.getInstance("MD5");
-		md.update(input.getBytes());
-
-		byte byteData[] = md.digest();
-
-		StringBuffer sb = new StringBuffer();
-		for (int i = 0; i < byteData.length; i++) {
-			sb.append(Integer.toString((byteData[i] & 0xff) + 0x100, 16)
-					.substring(1));
-		}
-		return sb.toString();
-	}
-	
-	public static String generateContextIdFromString(String input) throws Exception {
-		try{
-			UUID.fromString(input);
-		}catch(Exception ex){
-			StringBuffer sb = new StringBuffer(generateMD5Hash(input));
-			for(int i = 8; i < 24; i=i+5){
-				sb.insert(i, "-");
-			}
-			return sb.toString();
-		}
-		return input;
-	}
-
-
-	public static String checkSumColumnFamily(String cfName) {
-		StringBuffer sb;
-		try {
-			sb = new StringBuffer(generateMD5Hash(cfName));
-			return sb.toString().substring(0, Configuration.CHECKSUM_LENGTH);
-		} catch (Exception e) {
-			return null;
-		}
+		return false;
 	}
 
 }

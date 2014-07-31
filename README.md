@@ -9,7 +9,14 @@ Provide transaction (atomicity, isolation), concurrent arithmetic functionality 
 
 ## Transaction
 * Provide a snapshot/temp write while doing operation.  When commit, snapshot are copy to original.  When rollback, snapshot/temp tables are discarded.  snapshot/temp are readable by same session
+```
+Transaction Functions:
+	List<Row> execute(String sql, Object... arguments);
 
+	void commit();
+
+	void rollback();
+```
 ### Implementation
 * dynamicly create temporary column family that is a copy with extra key for session at run time.  Reuse if the column family already exist.  This can be cumbersome if column family get changed.  Initialzation function can be added to detect if any temp table are out of date and delete and recreate them.
 * Name of temp table : table_{checksum}, checksum is generated(using any hash algorithm) from columns name ( maximun 8 character)
@@ -53,45 +60,131 @@ For more detail on [implemention](README.md)
 
 Require use of library to abstract incre/decre, merge, sum
 
-Arithemtic Functions:
-	incre(cf, key, amount) 
-	decre(cf, key, amount)
-	sum(cf, key)
-	merge(cf, key)
-```
-
-###Example
-```
-Current balance of 30 			
-cf = "seller_balance"
-id = ('lunex', 123) #for example, id can be a tuple
-incre(cf, id, 5)
-incre(cf, id, 10)			
-incre(cf, id, 15) #balance = [5, 10, 15]			
-sum(cf, id) = 30
-incre(cf, id, 3) #balance = [5, 10, 15, 3]	
-sum(cf, id) = 33
-merge(cf, id) = 33 # [33]
-
-```
-Arithmetic with Transaction
-```
-ctx = Context.start()
-id = 3
-bal = sum(cf, id) #let's say balance is 10
-ctx.incre(cf, id, 5) #visible only by context seller_balance = [10] seller_balance_temp = [5]
-incre(cf, id, 1) #seller_balance = [10, 1] seller_balance_temp = [5]
-sum(cf, id) #15
-ctx.sum(cf, id) #20 , include the seller_temp
-ctx.commit() #ctx.merge get called.
-sum(cf, id) #20
-
-#let's do a rollback
-ctx = Context.start()
-ctx.incre(cf, 5) #visible only by context seller.balance = [20] seller_temp.balance = [5]
-ctx.rollback() #ctx.close(), all temp item with ctx is removed
-sum(cf, id) #20
+Arithmetic Functions:
+	incre(cf, key, amount, column) 
+	decre(cf, key, amount, column)
+	sum(cf, key, column)
+	merge(cf, key, column)
 ```
 
 
+###Getting started
+####Setup environment
+```
+Install cassandra : http://wiki.apache.org/cassandra/GettingStarted 
+```
+####Requirement
+#####Arithmetic table must have follow construct
+```
+CREATE TABLE keyspacename.tablename
+	(id int, updateid timeuuid, type text, version text, 
+	 amount decimal, PRIMARY KEY (id, updateid, type, version)
+	) WITH CLUSTERING ORDER BY (updateid DESC)
 
+*updateid, type, version is required and managed by library
+*table must be order by updateid(desc)
+*partition keys can be single/compound column
+*data must be inserted by library
+*if partition keys is compound column, key must be a map when calling incre, sum, merge function
+
+```
+###How to use
+####Transaction
+```
+//config node, port, original keyspace, temp keyspace(contains tmp table)
+Configuration.loadConfig("localhost", 9042,"test_keyspace","tx_keyspace");
+//start context
+Context ctx = (Context) Context.start();
+//insert
+String sql = "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
+ctx.execute(sql, "trinhtran", "Trinh", "Tran", 20);
+ctx.commit();//commit, copy data from tmp table to original table
+
+//delete
+sql = "delete from test_keyspace.customer where username = ?";
+ctx.execute(sql, "trinhtran");
+ctx.commit();
+
+//update
+sql = "update test_keyspace.customer set age = 26 where username = ?";
+ctx.execute(sql, "duynguyen");
+
+//select
+sql = "select * from test_keyspace.customer where username = ?";
+ctx.execute(sql, "duynguyen")
+ctx.rollback();//disregard temp data
+ctx.close();//disregard temp data & close context
+```
+####arithmetic function
+#####key : single column
+```
+//config node, port, original keyspace, temp keyspace(contains tmp table)
+Configuration.loadConfig("localhost", 9042,"test_keyspace","tx_keyspace");
+Context ctx = (Context) Context.start();
+int id = 123;
+//increase
+ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
+ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
+ctx.commit();
+//sum
+BigDecimal sum = ctx.sum("seller_balance", id, "amount");
+assertEquals(sum, new BigDecimal(9));
+//merge
+ctx.merge("seller_balance", id, "amount");
+String sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
+assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
+//increase
+ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+//sum 
+sum = ctx.sum("seller_balance", id, "amount");
+assertEquals(sum, new BigDecimal(10));
+ctx.rollback();
+//sum
+sum = ctx.sum("seller_balance", id, "amount");
+assertEquals(sum, new BigDecimal(9));
+//incre
+ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+ctx.commit();
+sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
+assertEquals(session.execute(sql,id).one().getLong("count") ,2l);
+//sum
+sum = ctx.sum("seller_balance", id, "amount");
+assertEquals(sum, new BigDecimal(10));
+//merge
+ctx.merge("seller_balance", id, "amount");
+sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
+assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
+
+//merge
+ctx.merge("seller_balance", id, "amount");
+sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
+assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
+
+//decrease
+ctx.incre("seller_balance", id, "amount", new BigDecimal(-5));
+ctx.commit();
+sum = ctx.sum("seller_balance", id, "amount");
+assertEquals(sum, new BigDecimal(5));
+ctx.close();
+```
+
+#####key : compound column
+```
+Context ctx = (Context) Context.start();
+String table = "seller_balance_complex";
+Map<String, Object> mapKey = new HashMap<String, Object>();
+String company = "lunex";
+int id = 123;
+mapKey.put("company", company);
+mapKey.put("id", id);
+//increase
+ctx.incre(table, mapKey, "amount", new BigDecimal(1));
+ctx.incre(table, mapKey, "amount", new BigDecimal(3));
+ctx.incre(table, mapKey, "amount", new BigDecimal(5));
+ctx.commit();
+//sum
+BigDecimal sum = ctx.sum(table, mapKey, "amount");
+assertEquals(sum, new BigDecimal(9));
+ctx.close();//disregard temp data & close context
+```

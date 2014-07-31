@@ -171,6 +171,13 @@ ctx.close();
 
 #####key : compound column
 ```
+CREATE TABLE test_keyspace.seller_balance_complex 
+	(company text, id int, 
+	 updateid timeuuid,type text, version text, amount decimal,
+	 PRIMARY KEY ((company, id), updateid, type, version )
+	 ) WITH CLUSTERING ORDER BY (updateid DESC)
+```
+```
 Context ctx = (Context) Context.start();
 String table = "seller_balance_complex";
 Map<String, Object> mapKey = new HashMap<String, Object>();

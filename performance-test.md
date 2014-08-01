@@ -3,8 +3,8 @@ Performance Test
 
 Standone console program using the library directly.  This will isolate other factor such as webframework, serialization although they should be minimal compared to database IO.
 
-##CRUD operation.
-CRUD operation. 
+##CRUD testing
+Test mix crud operation.
 ```
 Load Parameter: 
 	Num of client: Number of thread/process sending request	
@@ -18,14 +18,14 @@ Load Parameter:
 	Num of Context:	if this number is same as Request, then all number use context, otherwise, some will not use context.
 	Tables for the test: the loadtest can create the table.
 
-operations:
+function:
 	create
 	update
 	delete
 	list
 	
 ```
-##Arithmetic operations.
+##Arithmetic functions
 
 The ratio customer to seller will determine contention.  Customer will random send to the available seller.  At the end of the loadtest or at any given moment, the total of balance of all seller, customer should be the same.  Both purchase or transfer does not create any money.
 
@@ -45,7 +45,7 @@ Load Parameter:
 
 	Tables for the test: loadtest should create table seller, customer
 
-operations:
+function:
 	purchase(customerid, sellerid, amount) #move $ from customer to seller.
 	transfer(sellerid, sellerid, amount) # move $ from seller to another seller
 ```

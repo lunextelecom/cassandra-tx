@@ -91,7 +91,7 @@ Open File > Import Project... and navigate to the cassandra-tx directory of your
 Select Import project from external model, select "Maven", and click Next.
 In the following screen, enable the checkbox Import Maven projects automatically. Leave all other values at their defaults. Click Next.
 Click Next on the following screen about selecting Maven projects to import.
-Select the JDK to be used by IDEA for storm-starter, then click Next.
+Select the JDK to be used by IDEA for cassandra-tx, then click Next.
 At the time of this writing you should use JDK 7.
 
 You may now optionally change the name of the project in IDEA. The default name suggested by IDEA is "cassandra-tx". Click Finish once you are done.

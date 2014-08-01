@@ -1,4 +1,4 @@
-package com.lunex.core.cassandra;
+package com.lunex.test.cassandra;
 
 import static org.junit.Assert.assertEquals;
 
@@ -17,6 +17,7 @@ import com.datastax.driver.core.KeyspaceMetadata;
 import com.datastax.driver.core.Metadata;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Session;
+import com.lunex.core.cassandra.Context;
 import com.lunex.core.utils.Configuration;
 
 
@@ -90,6 +91,10 @@ public class ContextTest {
 				String sql = "CREATE TABLE test_keyspace.seller_balance (id int,updateid timeuuid,type text, version text, amount decimal,PRIMARY KEY (id, updateid, type, version )) WITH CLUSTERING ORDER BY (updateid DESC)";
 		    	session.execute(sql);
 			}
+			if(keyspaceMetadata.getTable("seller_balance_complex") == null){
+				String sql = "CREATE TABLE test_keyspace.seller_balance_complex (company text, id int,updateid timeuuid,type text, version text, amount decimal,PRIMARY KEY ((company,id), updateid, type, version )) WITH CLUSTERING ORDER BY (updateid DESC)";
+		    	session.execute(sql);
+			}
     	}
     	cluster.close();
 	}
@@ -101,25 +106,14 @@ public class ContextTest {
     	session.execute(sql);
     	sql = "truncate test_keyspace.seller_balance";
     	session.execute(sql);
+    	sql = "truncate test_keyspace.seller_balance_complex";
+    	session.execute(sql);
+    	
     	cluster.close();
 	}
     /**
      * 
      */
-    @Test
-    public void testSetListMap() {
-    	
-		String sql = "INSERT INTO test(pk, t, v, s) VALUES (0, 0, 'val0', 'static0')";
-		Context ctx = (Context) Context.getContext("dsfds");
-	
-		ctx.execute(sql);
-		sql = "INSERT INTO test(pk, t, v, s) VALUES (0, 1, 'val1', 'static1');";
-		
-		ctx.commit();
-    }
-    //test case here
-
-    
     @Test
     public void testCustomer() {
     	

@@ -35,6 +35,7 @@ import com.datastax.driver.core.TableMetadata;
 import com.datastax.driver.core.utils.UUIDs;
 import com.lunex.core.utils.Configuration;
 import com.lunex.core.utils.RowKey;
+import com.lunex.core.utils.Utils;
 
 public class Context implements IContext {
 

@@ -22,6 +22,7 @@ import com.datastax.driver.core.policies.ConstantReconnectionPolicy;
 import com.datastax.driver.core.policies.DowngradingConsistencyRetryPolicy;
 import com.google.common.base.Strings;
 import com.lunex.core.utils.Configuration;
+import com.lunex.core.utils.Utils;
 
 public class ContextFactory {
 	

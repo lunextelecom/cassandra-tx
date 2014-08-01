@@ -69,10 +69,34 @@ Arithmetic Functions:
 
 
 ###Getting started
-####Setup environment
+#### Prerequisites
+* First, you need java and git installed and in your user's PATH. 
+
+####Get source
+* $ git clone https://github.com/lunextelecom/cassandra-tx.git
+
+#### Install
+* mvn clean install -DskipTests=true
+
+#### Running unit tests
+* $ mvn test
+
+#### Using cassandra-tx with IntelliJ IDEA
 ```
-Install cassandra : http://wiki.apache.org/cassandra/GettingStarted 
+Importing cassandra-tx as a project in IDEA
+
+The following instructions will import cassandra-tx as a new project in IntelliJ IDEA.
+
+Open File > Import Project... and navigate to the cassandra-tx directory of your cassandra-tx clone 
+Select Import project from external model, select "Maven", and click Next.
+In the following screen, enable the checkbox Import Maven projects automatically. Leave all other values at their defaults. Click Next.
+Click Next on the following screen about selecting Maven projects to import.
+Select the JDK to be used by IDEA for storm-starter, then click Next.
+At the time of this writing you should use JDK 7.
+
+You may now optionally change the name of the project in IDEA. The default name suggested by IDEA is "cassandra-tx". Click Finish once you are done.
 ```
+
 ####Requirement
 #####Arithmetic table must have follow construct
 ```
@@ -124,48 +148,13 @@ Context ctx = (Context) Context.start();
 int id = 123;
 //increase
 ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
-ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
-ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
-ctx.commit();
+
 //sum
 BigDecimal sum = ctx.sum("seller_balance", id, "amount");
-assertEquals(sum, new BigDecimal(9));
-//merge
-ctx.merge("seller_balance", id, "amount");
-String sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
-assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
-//increase
-ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
-//sum 
-sum = ctx.sum("seller_balance", id, "amount");
-assertEquals(sum, new BigDecimal(10));
-ctx.rollback();
-//sum
-sum = ctx.sum("seller_balance", id, "amount");
-assertEquals(sum, new BigDecimal(9));
-//incre
-ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
-ctx.commit();
-sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
-assertEquals(session.execute(sql,id).one().getLong("count") ,2l);
-//sum
-sum = ctx.sum("seller_balance", id, "amount");
-assertEquals(sum, new BigDecimal(10));
-//merge
-ctx.merge("seller_balance", id, "amount");
-sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
-assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
 
 //merge
 ctx.merge("seller_balance", id, "amount");
-sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
-assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
 
-//decrease
-ctx.incre("seller_balance", id, "amount", new BigDecimal(-5));
-ctx.commit();
-sum = ctx.sum("seller_balance", id, "amount");
-assertEquals(sum, new BigDecimal(5));
 ctx.close();
 ```
 
@@ -187,11 +176,8 @@ mapKey.put("company", company);
 mapKey.put("id", id);
 //increase
 ctx.incre(table, mapKey, "amount", new BigDecimal(1));
-ctx.incre(table, mapKey, "amount", new BigDecimal(3));
-ctx.incre(table, mapKey, "amount", new BigDecimal(5));
-ctx.commit();
 //sum
 BigDecimal sum = ctx.sum(table, mapKey, "amount");
-assertEquals(sum, new BigDecimal(9));
+
 ctx.close();//disregard temp data & close context
 ```

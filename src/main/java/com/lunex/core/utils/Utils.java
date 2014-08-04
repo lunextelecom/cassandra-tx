@@ -22,6 +22,25 @@ public class Utils {
 	    return Math.abs((int)((UUIDs.unixTimestamp(laterDate)/60000) - (UUIDs.unixTimestamp(earlierDate)/60000)));
 	}
 	
+	/**
+	 * @param earlierDate
+	 * @param laterDate
+	 * @return
+	 *  laterDate > earlierDate: 1,
+	 *  laterDate < earlierDate: -1,
+	 *  laterDate = earlierDate: 0
+	 */
+	public static int compare(UUID earlierDate, UUID laterDate)
+	{
+	    if( earlierDate == null || laterDate == null ) return 0;
+	    
+	    if(UUIDs.unixTimestamp(laterDate) >UUIDs.unixTimestamp(earlierDate)){
+	    	return 1;
+	    }else if(UUIDs.unixTimestamp(laterDate) < UUIDs.unixTimestamp(earlierDate)){
+	    	return -1;
+	    }return 0;
+	}
+	
 	public static String generateMD5Hash(String input) throws Exception {
 		MessageDigest md = MessageDigest.getInstance("MD5");
 		md.update(input.getBytes());

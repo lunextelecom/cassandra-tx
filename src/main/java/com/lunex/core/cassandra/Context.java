@@ -581,13 +581,14 @@ public class Context implements IContext {
 			logger.info("1. (cassandra operation) normal_rows, tombstone_rows, merge_rows = get rows for sum");
 			cf = cf.replaceFirst(Configuration.getKeyspace() + ".","");
 			List<Object> params = new ArrayList<Object>();
-			StringBuilder selectSql = artCreateSelectStatement(cf, key, params);
+			final StringBuilder selectSql = artCreateSelectStatement(cf, key, params);
 			UUID lastestUpdateid = null;
 			ResultSet resultSet = client.getSession().execute(selectSql.toString(), params.toArray());
 			Map<UUID, Row> mapNormal = new HashMap<UUID, Row>();
 			Map<String, Row> mapMerge = new HashMap<String, Row>();
 			List<Row> lstAllTS = new ArrayList<Row>();
 			List<Row> lstInvalidTS = new ArrayList<Row>();
+			List<Row> lstInvalidMerge = new ArrayList<Row>();
 			Map<UUID, Row> mapUUIDTombstone = new HashMap<UUID, Row>();
 			Map<String, Row> mapVersionTombstone = new HashMap<String, Row>();
 			int numRow = 0;
@@ -601,10 +602,15 @@ public class Context implements IContext {
 					if(row.getString("type").equalsIgnoreCase("N")){
 						mapNormal.put(row.getUUID("updateid"), row);
 					}else if(row.getString("type").equalsIgnoreCase("S")){
-						mapMerge.put(row.getString("version"), row);
+						if(mapMerge.isEmpty()){
+							mapMerge.put(row.getString("version"), row);
+						}else{
+							lstInvalidMerge.add(row);
+						}
 					}else{
 						lstAllTS.add(row);
 					}
+					logger.info(ctxId + " : " + row.getString("type") + " " + row.getString("version") + " " + row.getDecimal("amount"));
 				}
 			}
 			if(numRow<=1){
@@ -640,6 +646,7 @@ public class Context implements IContext {
 			for (Row row:  mapMerge.values()) {
 				amount = amount.add(row.getDecimal(mergedColumn));
 			}
+			logger.info(ctxId + " SUM : " + amount);
 			/**
 			 * 4. newversion = generate timeuuid
 			 * */
@@ -657,7 +664,7 @@ public class Context implements IContext {
 			 * 6.(cassandra operation) insert merge record with sum and newversion. this operation make tombstone valid
 			 * */
 			logger.info("6.(cassandra operation) insert merge record with sum and newversion. this operation make tombstone valid");
-			artInsertMergeRow(cf, key, "S", newversion, mergedColumn, amount);
+			artInsertMergeRow(cf, key, "S", newversion, mergedColumn, amount, lastestUpdateid);
 			
 			/**
 			 * 7.(cassandra operation, sometimes) delete normal and merge records with valid tombstone. Do not send this request if there isn't any records to delete.
@@ -687,9 +694,32 @@ public class Context implements IContext {
 				}
 			}
 			artDeleteNormalRecord(cf, lstDelete);
+			
+			/**
+			 * 9. delete older merge record
+			 */
+//			resultSet = client.getSession().execute(selectSql.toString(), params.toArray());
+//			
+//			List<Row> lstOlder = new ArrayList<Row>();
+//			Boolean isFirst = true;
+//			if(resultSet != null){
+//				while(!resultSet.isExhausted()){
+//					final Row row = resultSet.one();
+//					if(row.getString("type").equalsIgnoreCase("S")){
+//						if(isFirst){
+//							isFirst = false;
+//						}else{
+//							lstOlder.add(row);
+//						}
+//					}
+//				}
+//			}
+			if(lstInvalidMerge.size() > 0){
+				artDeleteNormalRecord(cf, lstInvalidMerge);
+			}
 		} catch (Exception e) {
-			logger.error("merge failed " + e.getMessage()+ ". Message :" + e.getMessage());
-			throw new UnsupportedOperationException("merge failed " + e.getMessage()+ ". Message :" + e.getMessage());
+			logger.error("merge failed . Message :" + e.getMessage());
+			throw new UnsupportedOperationException("merge failed . Message :" + e.getMessage());
 		}
 	}
 
@@ -712,7 +742,9 @@ public class Context implements IContext {
 					if(row.getString("type").equalsIgnoreCase("N")){
 						mapNormal.put(row.getUUID("updateid"), row);
 					}else if(row.getString("type").equalsIgnoreCase("S")){
-						mapMerge.put(row.getString("version"), row);
+						if(mapMerge.isEmpty()){
+							mapMerge.put(row.getString("version"), row);
+						}
 					}else{
 						lstAllTS.add(row);
 					}
@@ -910,7 +942,7 @@ public class Context implements IContext {
 		}
 	}
 	
-	public void artInsertMergeRow(String cf, Object key, String type, String version, String column, BigDecimal amount) {
+	public void artInsertMergeRow(String cf, Object key, String type, String version, String column, BigDecimal amount, UUID updateid) {
 		try {
 			StringBuilder statement = new StringBuilder();
 			StringBuilder valueSql = new StringBuilder();
@@ -945,7 +977,8 @@ public class Context implements IContext {
 				}
 			}
 			statement.append(" updateid, type, version, " + column + ")");
-			valueSql.append("now(),?,?,?)");
+			valueSql.append("?,?,?,?)");
+			params.add(updateid);
 			params.add(type);
 			params.add(version);
 			params.add(amount);

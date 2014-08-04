@@ -4,7 +4,10 @@ import static org.junit.Assert.assertEquals;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.junit.After;
 import org.junit.AfterClass;
@@ -16,6 +19,7 @@ import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.KeyspaceMetadata;
 import com.datastax.driver.core.Metadata;
 import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.lunex.core.cassandra.Context;
 import com.lunex.core.utils.Configuration;
@@ -42,7 +46,7 @@ public class ContextTest {
     public static void oneTimeTearDown() {
         // one-time cleanup code
     	System.out.println("@AfterClass - oneTimeTearDown");
-    	discardData();
+    	
     }
  
     @Before
@@ -57,6 +61,8 @@ public class ContextTest {
     @After
     public void tearDown() {
         System.out.println("@After - tearDown");
+        cluster.close();
+        discardData();
         
     }
  
@@ -117,7 +123,7 @@ public class ContextTest {
     @Test
     public void testCustomer() {
     	
-		String sql = "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
+    	String sql = "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
 		session.execute(sql, "duynguyen", "Duy", "Nguyen", 20);
 		
     	Context ctx = (Context) Context.start();
@@ -270,6 +276,182 @@ public class ContextTest {
      	ctx.close();
 	}
     
+    @Test
+    public void testSelect(){
+    	String sql = "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
+		session.execute(sql, "duynguyen", "Duy", "Nguyen", 20);
+		
+    	Context ctx = (Context) Context.start();
+    	sql = "select * from test_keyspace.customer where username = ?";
+    	assertEquals(1,ctx.execute(sql, "duynguyen").size());
+    
+    	ctx.close();
+    }
+    
+    @Test
+    public void testUpdate(){
+    	String sql = "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
+		session.execute(sql, "duynguyen", "Duy", "Nguyen", 20);
+		
+    	Context ctx = (Context) Context.start();
+    	sql = "update test_keyspace.customer set age = 26 where username = ?";
+    	ctx.execute(sql, "duynguyen");
+    	sql = "select * from test_keyspace.customer where username = ?";
+    	ResultSet res1 = session.execute(sql, "duynguyen");
+    	int age1 = res1.one().getInt("age");
+    	int age2 = ctx.execute(sql, "duynguyen").get(0).getInt("age");
+    	assertEquals(age1, 20);
+    	assertEquals(age2, 26);
+    	
+    	ctx.close();
+    }
+    
+    @Test
+    public void testDelete(){
+    	String sql = "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
+		session.execute(sql, "duynguyen", "Duy", "Nguyen", 20);
+    	Context ctx = (Context) Context.start();
+    	sql = "delete from test_keyspace.customer where username = ?";
+    	ctx.execute(sql, "duynguyen");
+    	sql = "select * from test_keyspace.customer where username = ?";
+    	List<Row> res1 = ctx.execute(sql, "trinhtran");
+    	assertEquals(res1.size()==0,true);
+    	ctx.close();
+    }
+    
+    @Test
+    public void testInsert(){
+    	String sql =  "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
+    	Context ctx = (Context) Context.start();
+    	ctx.execute(sql, "trinhtran", "Trinh", "Tran", 20);
+    	sql = "select * from test_keyspace.customer where username = ?";
+    	List<Row> res1 = ctx.execute(sql, "trinhtran");
+    	assertEquals(res1.size()>0,true);
+    	ctx.close();
+    }
+    
+    @Test
+    public void testCommit(){
+    	String sql =  "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
+    	Context ctx = (Context) Context.start();
+    	ctx.execute(sql, "trinhtran", "Trinh", "Tran", 20);
+    	ctx.commit();
+    	sql = "select * from test_keyspace.customer where username = ?";
+    	ResultSet res1 = session.execute(sql, "trinhtran");
+    	assertEquals(res1.isExhausted(),false);
+    }
+    
+    @Test
+    public void testRollback(){
+    	String sql =  "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
+    	Context ctx = (Context) Context.start();
+    	ctx.execute(sql, "trinhtran", "Trinh", "Tran", 20);
+    	ctx.rollback();
+    	sql = "select * from test_keyspace.customer where username = ?";
+    	ResultSet res1 = session.execute(sql, "trinhtran");
+    	assertEquals(res1.isExhausted(),true);
+    }
+    
+    @Test
+    public void testIncre(){
+    	Context ctx = (Context) Context.start();
+    	int id = 123;
+    	//increase
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
+    	ctx.commit();
+    	String sql = "select * from test_keyspace.seller_balance where id = " + id;
+    	assertEquals(3,ctx.execute(sql).size());
+    }
   
+    @Test
+    public void testSum(){
+    	Context ctx = (Context) Context.start();
+    	int id = 123;
+    	//increase
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
+    	ctx.commit();
+    	String sql = "select * from test_keyspace.seller_balance where id = " + id;
+    	assertEquals(new BigDecimal(9),ctx.sum("seller_balance", id, "amount"));
+    }
+    
+    @Test
+    public void testMerge(){
+    	Context ctx = (Context) Context.start();
+    	int id = 123;
+    	//increase
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
+    	ctx.commit();
+    	ctx.merge("seller_balance", id, "amount");
+    	String sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
+     	assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
+    }
+   
+    @Test
+    public void testMergeConcurency(){
+    	Context ctx = (Context) Context.start();
+    	int id = 123;
+    	//increase
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
+    	ctx.commit();
+    	//
+		ExecutorService executor = Executors.newFixedThreadPool(50);
+		for (int i = 0; i < 100; i++) {
+			Context ctx1 = (Context) Context.start();
+			Runnable worker = new MergeThread(ctx1, "" + i);
+			executor.execute(worker);
+			
+		}
+		executor.shutdown();
+		while (!executor.isTerminated()) {
+		}
+		System.out.println("Finished all threads");
+    	//
+		
+		assertEquals(ctx.sum("seller_balance", id, "amount"),new BigDecimal(9));
+    }
+    
+    
+    @Test
+    public void testMergeInsertConcurency(){
+    	Context ctx = (Context) Context.start();
+    	int id = 123;
+    	BigDecimal res = new BigDecimal(9);
+    	//increase
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
+    	ctx.commit();
+    	//
+		ExecutorService executor = Executors.newFixedThreadPool(50);
+		for (int i = 0; i < 100; i++) {
+			Context ctx1 = (Context) Context.start();
+			if(i%2==0){
+				Runnable worker = new MergeThread(ctx1, "" + i);
+				executor.execute(worker);
+			}else{
+				res = res.add(new BigDecimal(1));
+				Runnable worker = new InsertThread(ctx1, "" + i);
+				executor.execute(worker);
+			}
+			
+		}
+		executor.shutdown();
+		while (!executor.isTerminated()) {
+		}
+		System.out.println("Finished all threads");
+    	//
+		
+		assertEquals(ctx.sum("seller_balance", id, "amount"),res);
+    }
+    
+    
     //
 }

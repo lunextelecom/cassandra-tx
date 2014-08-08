@@ -76,6 +76,9 @@ merge record is inserted.  tombstone record become valid and cancel out the norm
 1 - 1 + 3 - 3 + 5 - 5 + 9(merge)
 [(0,N,,1),(0,T,1,1),(1,N,,3),(1,T,1,3),(2,N,,5),(2,T,1,5),(3,S,1,9)] 
 
+nothing is deleted since in memory, it was
+[(0,N,,1),(1,N,,3),(2,N,,5)]
+
 delete normal, merge records that have valid tombstone
 [(0,T,1,1),(1,T,1,3),(2,T,1,5),(3,S,1,9)] 
 

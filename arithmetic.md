@@ -91,7 +91,9 @@ sum is now 10
 
 sum is still 10
 9 + 1 = 10
-[(3,S,1,9),(3,T,1,9),(4,N,,1),(4,T,2,1)] 
+
+insert tombstone version 2)
+[(3,S,1,9),(3,T,2,9),(4,N,,1),(4,T,2,1)] 
 
 merge insert, tombstone is now valid
 9 - 9 + 1 + 1 + 10

@@ -81,9 +81,6 @@ def merge_insert_merge(snapshot, cols, new_version, new_updateid, valid_cols, lo
         'Skip insert tombstone because no new record inserted'
         return
 
-    if snapshot[-1][2] == 'S':
-        'Skip insert merge'
-        return
     total = __sum(valid_cols, log_prefix)
     merge_record = (new_updateid, 'S', new_version, total)
     cols.append(merge_record)

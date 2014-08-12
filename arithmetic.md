@@ -23,17 +23,17 @@ Arithmetic operations is non blocking and it is optimized for update rather than
 ##### merge:
   1. (cassandra operation) normal_rows, tombstone_rows, merge_rows = get rows for sum
   2. (local code) discard invalid tombstone_rows, invalid_merge rows,  get lastest updateid
-  3. (local code) sum = normal_rows + valid_tombstone_rows + merge_rows
+  3. (local code) sum = normal_rows + valid_tombstone_rows + valid_merge_rows
   4. (local code) newversion = generate timeuuid
   5. (cassandra operation) if last record is a merge, skip. insert tombstone for normal + merged rows with newversion. 
   6. (cassandra operation) if previous step is skip, skip this one too. insert merge record with sum and newversion and updateid = lastest updateid,  this operation make tombstone valid
   7. (cassandra operation, sometimes) delete normal and merge records with valid tombstone.  Do not send this request if there isn't any records to delete.
-  8. (cassandra operation, sometimes) delete invalid tombstone older than 10 mins if there are any, do not send this request if there isnt' any match
+  8. (cassandra operation, sometimes) delete invalid tombstone, invalid merge older than 10 mins if there are any, do not send this request if there isnt' any match
 
 ##### sum: single wide row read 
   1. normal_rows, tombstone_rows, merge_rows = get rows for sum
-  2. discard invalid tombstone_rows 
-  3. sum = normal_rows + valid_tombstone_rows + merge_rows
+  2. discard invalid tombstone_rows, invalid_merge rows
+  3. sum = normal_rows + valid_tombstone_rows + valid_merge_rows
 
 ### Example and usage
 ```

@@ -21,7 +21,13 @@ public class Utils {
 
 	    return Math.abs((int)((UUIDs.unixTimestamp(laterDate)/60000) - (UUIDs.unixTimestamp(earlierDate)/60000)));
 	}
-	
+
+	public static int secondsDiff(UUID earlierDate, UUID laterDate)
+	{
+	    if( earlierDate == null || laterDate == null ) return 0;
+
+	    return Math.abs((int)((UUIDs.unixTimestamp(laterDate)/1000) - (UUIDs.unixTimestamp(earlierDate)/1000)));
+	}
 	/**
 	 * @param earlierDate
 	 * @param laterDate

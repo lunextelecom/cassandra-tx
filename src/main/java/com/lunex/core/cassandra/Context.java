@@ -46,6 +46,10 @@ public class Context implements IContext {
 	private ContextFactory client;
 	
 	private int batchSize = 100;
+	
+	private String normalType = "N";
+	private String mergeType = "MS";
+	private String tombstoneType = "MT";
 
 	public void commit() {
 		logger.info("context commit");
@@ -92,7 +96,6 @@ public class Context implements IContext {
 		}
 		
 	}
-
 	
 	private BoundStatement commitOthersStatement(String cftx, final Row row) {
 		StringBuilder statement;
@@ -244,6 +247,10 @@ public class Context implements IContext {
 	public List<Row> execute(String sql, Object... args) {
 		return execute(sql, false, args);
 		
+	}
+	
+	public ResultSet executeNonContext(String sql, Object... arguments) {
+		return client.getSession().execute(sql, arguments); 
 	}
 	
 	private List<Row> execute(String sql, Boolean isArith, Object... args) {
@@ -573,7 +580,7 @@ public class Context implements IContext {
 		return res;
 	}
 
-	public void merge(String cf, Object key, String mergedColumn) {
+	public void merge(String cf, Object key, String column) {
 		try {
 			/**
 			 * 1. (cassandra operation) normal_rows, tombstone_rows, merge_rows = get rows for sum
@@ -583,29 +590,38 @@ public class Context implements IContext {
 			List<Object> params = new ArrayList<Object>();
 			final StringBuilder selectSql = artCreateSelectStatement(cf, key, params);
 			UUID lastestUpdateid = null;
+			UUID lastestMergeUUID = null;
 			ResultSet resultSet = client.getSession().execute(selectSql.toString(), params.toArray());
 			Map<UUID, Row> mapNormal = new HashMap<UUID, Row>();
-			Map<String, Row> mapMerge = new HashMap<String, Row>();
+			Map<UUID, Row> mapMergeUUID = new HashMap<UUID, Row>();
+			Map<String, Row> mapMergeVer = new HashMap<String, Row>();
 			List<Row> lstAllTS = new ArrayList<Row>();
 			List<Row> lstInvalidTS = new ArrayList<Row>();
-			List<Row> lstInvalidMerge = new ArrayList<Row>();
-			Map<UUID, Row> mapUUIDTombstone = new HashMap<UUID, Row>();
-			Map<String, Row> mapVersionTombstone = new HashMap<String, Row>();
+			List<Row> lstValidTS = new ArrayList<Row>();
+			
+			List<Row> lstNorValidTS = new ArrayList<Row>();
+			List<Row> lstMerValidTS = new ArrayList<Row>();
+			boolean firstIsMerge = false;
 			int numRow = 0;
 			if(resultSet != null){
 				while(!resultSet.isExhausted()){
 					numRow++;
 					final Row row = resultSet.one();
 					if(lastestUpdateid == null){
+						if(row.getString("type").equalsIgnoreCase(mergeType)){
+							firstIsMerge = true;
+						}
 						lastestUpdateid =row.getUUID("updateid");
 					}
-					if(row.getString("type").equalsIgnoreCase("N")){
+					if(row.getString("type").equalsIgnoreCase(normalType)){
 						mapNormal.put(row.getUUID("updateid"), row);
-					}else if(row.getString("type").equalsIgnoreCase("S")){
-						if(mapMerge.isEmpty()){
-							mapMerge.put(row.getString("version"), row);
+					}else if(row.getString("type").equalsIgnoreCase(mergeType)){
+						if(mapMergeVer.size()==0){
+							mapMergeVer.put(row.getString("version"), row);
+							mapMergeUUID.put(row.getUUID("updateid"), row);
+							lastestMergeUUID = row.getUUID("updateid");
 						}else{
-							lstInvalidMerge.add(row);
+							lstInvalidTS.add(row);
 						}
 					}else{
 						lstAllTS.add(row);
@@ -624,9 +640,19 @@ public class Context implements IContext {
 			 * */
 			logger.info("2.discard invalid tombstone_rows");
 			for (Row row : lstAllTS) {
-				if(mapNormal.containsKey(row.getUUID("updateid")) && mapMerge.containsKey(row.getString("version"))){
-					mapUUIDTombstone.put(row.getUUID("updateid"), row);
-					mapVersionTombstone.put(row.getString("version"), row);
+				if((mapNormal.containsKey(row.getUUID("updateid")) || mapMergeUUID.containsKey(row.getUUID("updateid"))) && mapMergeVer.containsKey(row.getString("version"))){
+					if(mapNormal.containsKey(row.getUUID("updateid"))){
+						lstValidTS.add(row);
+						lstNorValidTS.add(mapNormal.get(row.getUUID("updateid")));
+					}else{
+						Row tmpUUID = mapMergeUUID.get(row.getUUID("updateid"));
+						Row tmpVer = mapMergeVer.get(row.getString("version"));
+						if(!tmpVer.getString("version").equalsIgnoreCase(tmpUUID.getString("version")) ||
+								!tmpVer.getUUID("updateid").toString().equalsIgnoreCase(tmpUUID.getUUID("updateid").toString())){
+							lstValidTS.add(row);
+							lstMerValidTS.add(mapMergeUUID.get(row.getUUID("updateid")));
+						}
+					}
 				}else{
 					lstInvalidTS.add(row);
 				}
@@ -638,13 +664,25 @@ public class Context implements IContext {
 			logger.info("sum = normal_rows + valid_tombstone_rows + merge_rows");
 			BigDecimal amount = new BigDecimal(0);
 			for (Row row:  mapNormal.values()) {
-				amount = amount.add(row.getDecimal(mergedColumn));
+				if(lastestMergeUUID != null){
+					if(Utils.compare(lastestMergeUUID, row.getUUID("updateid"))==1){
+						amount = amount.add(row.getDecimal(column));
+					}
+				}else{
+					amount = amount.add(row.getDecimal(column));
+				}
 			}
-			for (Row row : mapUUIDTombstone.values()) {
-				amount = amount.subtract(row.getDecimal(mergedColumn));
+			for (Row row : lstValidTS) {
+				if(lastestMergeUUID != null){
+					if(Utils.compare(lastestMergeUUID, row.getUUID("updateid"))==1){
+						amount = amount.subtract(row.getDecimal(column));
+					}
+				}else{
+					amount = amount.subtract(row.getDecimal(column));
+				}
 			}
-			for (Row row:  mapMerge.values()) {
-				amount = amount.add(row.getDecimal(mergedColumn));
+			for (Row row:  mapMergeUUID.values()) {
+				amount = amount.add(row.getDecimal(column));
 			}
 			logger.info(ctxId + " SUM : " + amount);
 			/**
@@ -653,39 +691,36 @@ public class Context implements IContext {
 			logger.info("newversion = generate timeuuid");
 			String newversion = UUID.randomUUID().toString();
 			
-			/**
-			 * 5. (cassandra operation) insert tombstone for normal + merged rows with newversion
-			 * */
-			logger.info("5. (cassandra operation) insert tombstone for normal + merged rows with newversion");
-			artInsertTombstone(cf, mapNormal.values(), "T", newversion);
-			artInsertTombstone(cf, mapMerge.values(), "T", newversion);
+			if(!firstIsMerge){
+				
+				/**
+				 * 5. (cassandra operation) insert tombstone for normal + merged rows with newversion
+				 * */
+				logger.info("5. (cassandra operation) insert tombstone for normal + merged rows with newversion");
+				artInsertTombstone(cf, mapNormal.values(), tombstoneType, newversion);
+				artInsertTombstone(cf, mapMergeVer.values(), tombstoneType, newversion);
+				
+				/**
+				 * 6.(cassandra operation) insert merge record with sum and newversion. this operation make tombstone valid
+				 * */
+				logger.info("6.(cassandra operation) insert merge record with sum and newversion. this operation make tombstone valid");
+				artInsertMergeRow(cf, key, mergeType, newversion, column, amount, lastestUpdateid);
+			}
 			
-			/**
-			 * 6.(cassandra operation) insert merge record with sum and newversion. this operation make tombstone valid
-			 * */
-			logger.info("6.(cassandra operation) insert merge record with sum and newversion. this operation make tombstone valid");
-			artInsertMergeRow(cf, key, "S", newversion, mergedColumn, amount, lastestUpdateid);
 			
 			/**
 			 * 7.(cassandra operation, sometimes) delete normal and merge records with valid tombstone. Do not send this request if there isn't any records to delete.
 			 * */
 			logger.info("7.(cassandra operation, sometimes) delete normal and merge records with valid tombstone. Do not send this request if there isn't any records to delete.");
-			artDeleteNormalRecord(cf, mapNormal.values());
-			artDeleteMergedRecord(cf, mapMerge.values());
-			List<Row> collectionTmp = new ArrayList<Row>(); 
-			for (Row row : mapMerge.values()) {
-				collectionTmp.add(row);
-			}
-			for (Row row : mapNormal.values()) {
-				collectionTmp.add(row);
-			}
-			artDeleteTombstoneRecord(cf, collectionTmp, "T", newversion);
+			
+			artDeleteNormalRecord(cf, lstNorValidTS);
+			artDeleteMergedRecord(cf, lstMerValidTS);
 			
 			/**
 			 * 8.(cassandra operation, sometimes) delete invalid tombstone older than 10 mins if there are any, do not send this request if there isnt' any match
 			 * */
 			logger.info("8.(cassandra operation, sometimes) delete invalid tombstone older than 10 mins if there are any, do not send this request if there isnt' any match");
-			Collection<Row> lstDelete = new ArrayList<Row>();
+			List<Row> lstDelete = new ArrayList<Row>();
 			for (Row row : lstInvalidTS) {
 				int minutes = Utils.minutesDiff(row.getUUID("updateid"), lastestUpdateid);
 				if(minutes >=10){
@@ -695,59 +730,45 @@ public class Context implements IContext {
 			}
 			artDeleteNormalRecord(cf, lstDelete);
 			
-			/**
-			 * 9. delete older merge record
-			 */
-//			resultSet = client.getSession().execute(selectSql.toString(), params.toArray());
-//			
-//			List<Row> lstOlder = new ArrayList<Row>();
-//			Boolean isFirst = true;
-//			if(resultSet != null){
-//				while(!resultSet.isExhausted()){
-//					final Row row = resultSet.one();
-//					if(row.getString("type").equalsIgnoreCase("S")){
-//						if(isFirst){
-//							isFirst = false;
-//						}else{
-//							lstOlder.add(row);
-//						}
-//					}
-//				}
-//			}
-			if(lstInvalidMerge.size() > 0){
-				artDeleteNormalRecord(cf, lstInvalidMerge);
-			}
 		} catch (Exception e) {
 			logger.error("merge failed . Message :" + e.getMessage());
 			throw new UnsupportedOperationException("merge failed . Message :" + e.getMessage());
 		}
 	}
 
-	public BigDecimal sum(String cf, Object key, String sumColumn) {
+	public BigDecimal sum(String cf, Object key, String column) {
 		try {
 			/**
 			 * 1. (cassandra operation) normal_rows, tombstone_rows, merge_rows = get rows for sum
 			 * */
+			logger.info("1. (cassandra operation) normal_rows, tombstone_rows, merge_rows = get rows for sum");
 			cf = cf.replaceFirst(Configuration.getKeyspace() + ".","");
 			List<Object> params = new ArrayList<Object>();
-			StringBuilder selectSql = artCreateSelectStatement(cf, key, params);
-			List<Row> resultSet = execute(selectSql.toString(), true, params.toArray());
+			final StringBuilder selectSql = artCreateSelectStatement(cf, key, params);
+			List<Row> resultSet = execute(selectSql.toString(), params.toArray());
 			Map<UUID, Row> mapNormal = new HashMap<UUID, Row>();
-			Map<String, Row> mapMerge = new HashMap<String, Row>();
+			Map<UUID, Row> mapMergeUUID = new HashMap<UUID, Row>();
+			Map<String, Row> mapMergeVer = new HashMap<String, Row>();
 			List<Row> lstAllTS = new ArrayList<Row>();
-			Map<UUID, Row> mapUUIDTombstone = new HashMap<UUID, Row>();
-			Map<String, Row> mapVersionTombstone = new HashMap<String, Row>();
+			List<Row> lstInvalidTS = new ArrayList<Row>();
+			List<Row> lstValidTS = new ArrayList<Row>();
+			UUID lastestMergeUUID = null;
+			List<Row> lstNorValidTS = new ArrayList<Row>();
+			List<Row> lstMerValidTS = new ArrayList<Row>();
 			if(resultSet != null){
 				for (Row row : resultSet) {
-					if(row.getString("type").equalsIgnoreCase("N")){
+					if(row.getString("type").equalsIgnoreCase(normalType)){
 						mapNormal.put(row.getUUID("updateid"), row);
-					}else if(row.getString("type").equalsIgnoreCase("S")){
-						if(mapMerge.isEmpty()){
-							mapMerge.put(row.getString("version"), row);
+					}else if(row.getString("type").equalsIgnoreCase(mergeType)){
+						if(mapMergeVer.size()==0){
+							mapMergeVer.put(row.getString("version"), row);
+							mapMergeUUID.put(row.getUUID("updateid"), row);
+							lastestMergeUUID = row.getUUID("updateid");
 						}
 					}else{
 						lstAllTS.add(row);
 					}
+					logger.info(ctxId + " : " + row.getString("type") + " " + row.getString("version") + " " + row.getDecimal("amount"));
 				}
 			}
 			/**
@@ -756,25 +777,54 @@ public class Context implements IContext {
 			 *		- no merge record with the same version or 
 			 *		- no normal record with same updateid.  Invalid tombstone have zero value and is not counted during sum.
 			 * */
+			logger.info("2.discard invalid tombstone_rows");
 			for (Row row : lstAllTS) {
-				if(mapNormal.containsKey(row.getUUID("updateid")) && mapMerge.containsKey(row.getString("version"))){
-					mapUUIDTombstone.put(row.getUUID("updateid"), row);
-					mapVersionTombstone.put(row.getString("version"), row);
+				if((mapNormal.containsKey(row.getUUID("updateid")) || mapMergeUUID.containsKey(row.getUUID("updateid"))) && mapMergeVer.containsKey(row.getString("version"))){
+					if(mapNormal.containsKey(row.getUUID("updateid"))){
+						lstValidTS.add(row);
+						lstNorValidTS.add(mapNormal.get(row.getUUID("updateid")));
+					}else{
+						Row tmpUUID = mapMergeUUID.get(row.getUUID("updateid"));
+						Row tmpVer = mapMergeVer.get(row.getString("version"));
+						if(!tmpVer.getString("version").equalsIgnoreCase(tmpUUID.getString("version")) ||
+								!tmpVer.getUUID("updateid").toString().equalsIgnoreCase(tmpUUID.getUUID("updateid").toString())){
+							lstValidTS.add(row);
+							lstMerValidTS.add(mapMergeUUID.get(row.getUUID("updateid")));
+						}
+					}
+				}else{
+					lstInvalidTS.add(row);
 				}
 			}
 			
 			/**
 			 * 3. sum = normal_rows + valid_tombstone_rows + merge_rows
 			 * */
+			/**
+			 * 3. sum = normal_rows + valid_tombstone_rows + merge_rows
+			 * */
+			logger.info("sum = normal_rows + valid_tombstone_rows + merge_rows");
 			BigDecimal amount = new BigDecimal(0);
 			for (Row row:  mapNormal.values()) {
-				amount = amount.add(row.getDecimal(sumColumn));
+				if(lastestMergeUUID != null){
+					if(Utils.compare(lastestMergeUUID, row.getUUID("updateid"))==1){
+						amount = amount.add(row.getDecimal(column));
+					}
+				}else{
+					amount = amount.add(row.getDecimal(column));
+				}
 			}
-			for (Row row : mapUUIDTombstone.values()) {
-				amount = amount.subtract(row.getDecimal(sumColumn));
+			for (Row row : lstValidTS) {
+				if(lastestMergeUUID != null){
+					if(Utils.compare(lastestMergeUUID, row.getUUID("updateid"))==1){
+						amount = amount.subtract(row.getDecimal(column));
+					}
+				}else{
+					amount = amount.subtract(row.getDecimal(column));
+				}
 			}
-			for (Row row:  mapMerge.values()) {
-				amount = amount.add(row.getDecimal(sumColumn));
+			for (Row row:  mapMergeUUID.values()) {
+				amount = amount.add(row.getDecimal(column));
 			}
 			return amount;
 		} catch (Exception e) {
@@ -816,19 +866,19 @@ public class Context implements IContext {
 		return selectSql;
 	}
 	
-	private void artDeleteTombstoneRecord(String cf, final Collection<Row> rows, String type, String version) {
+	private void artDeleteTombstoneRecord(String cf, final List<Row> rows, String type, String version) {
 		deleteAirthMeticRecord(cf, rows, type, version);
 	}
 	
-	private void artDeleteMergedRecord(String cf, final Collection<Row> rows) {
+	private void artDeleteMergedRecord(String cf, final List<Row> rows) {
 		deleteAirthMeticRecord(cf, rows, null, null);
 	}
 	
-	private void artDeleteNormalRecord(String cf, final Collection<Row> rows) {
+	private void artDeleteNormalRecord(String cf, final List<Row> rows) {
 		deleteAirthMeticRecord(cf, rows, null, null);
 	}
 	
-	private void deleteAirthMeticRecord(String cf, final Collection<Row> rows, String type, String version) {
+	private void deleteAirthMeticRecord(String cf, final List<Row> rows, String type, String version) {
 		if(rows == null || rows.isEmpty()){
 			return;
 		}
@@ -942,7 +992,7 @@ public class Context implements IContext {
 		}
 	}
 	
-	public void artInsertMergeRow(String cf, Object key, String type, String version, String column, BigDecimal amount, UUID updateid) {
+	public void artInsertMergeRow(String cf, Object key, String type, String version, String column, BigDecimal amount, UUID updateId) {
 		try {
 			StringBuilder statement = new StringBuilder();
 			StringBuilder valueSql = new StringBuilder();
@@ -978,7 +1028,7 @@ public class Context implements IContext {
 			}
 			statement.append(" updateid, type, version, " + column + ")");
 			valueSql.append("?,?,?,?)");
-			params.add(updateid);
+			params.add(updateId);
 			params.add(type);
 			params.add(version);
 			params.add(amount);
@@ -1027,7 +1077,7 @@ public class Context implements IContext {
 			valueSql.append("now(),'N','',?)");
 			params.add(amount);
 			statement.append(valueSql);
-			execute(statement.toString(), params.toArray());
+			execute(statement.toString(), true, params.toArray());
 		} catch (Exception ex) {
 			logger.info("incre method failed" + ex.getMessage());
 			throw new UnsupportedOperationException("incre method failed" + ex.getMessage());
@@ -1050,6 +1100,7 @@ public class Context implements IContext {
 	public void setClient(ContextFactory client) {
 		this.client = client;
 	}
+
 
 }
 

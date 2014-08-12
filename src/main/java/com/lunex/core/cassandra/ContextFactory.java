@@ -50,7 +50,7 @@ public class ContextFactory {
 
 	public static void init(final String node, final int port, final String keyspace, final String txKeyspace) {
 		logger.info("init ContextFactory with node: " + node, ", port:" + port, ", keyspace: " + keyspace, ", txKeyspace: " +txKeyspace);
-		Cluster cluster = Cluster.builder().addContactPoint(node).withPort(port)
+		Cluster cluster = Cluster.builder().addContactPoint(node)//.withPort(port)
 				.build();
 
 		Session session = cluster.connect();
@@ -143,7 +143,7 @@ public class ContextFactory {
 				instance.session = instance.cluster.connect();*/
 				instance = new ContextFactory();
 				Builder builder = Cluster.builder();
-		        builder.addContactPoint(Configuration.getNode()).withPort(Configuration.getPort());
+		        builder.addContactPoint(Configuration.getNode());//.withPort(Configuration.getPort());
 
 		        PoolingOptions options = new PoolingOptions();
 		        options.setCoreConnectionsPerHost(HostDistance.LOCAL, options.getMaxConnectionsPerHost(HostDistance.LOCAL));

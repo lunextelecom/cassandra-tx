@@ -16,12 +16,18 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.HostDistance;
 import com.datastax.driver.core.KeyspaceMetadata;
 import com.datastax.driver.core.Metadata;
+import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.Cluster.Builder;
+import com.datastax.driver.core.policies.ConstantReconnectionPolicy;
+import com.datastax.driver.core.policies.DowngradingConsistencyRetryPolicy;
 import com.lunex.core.cassandra.Context;
+import com.lunex.core.cassandra.ContextFactory;
 import com.lunex.core.utils.Configuration;
 
 
@@ -30,8 +36,8 @@ import com.lunex.core.utils.Configuration;
  * Unit test for simple App.
  */
 public class ContextTest {
-	private static String node = "localhost";
-	private static int port = 9042;
+	private static String node = "192.168.93.38";
+	private static int port = 9160;
 	Cluster cluster;
 	Session session;
     @BeforeClass
@@ -39,7 +45,7 @@ public class ContextTest {
         // one-time initialization code   
     	System.out.println("@BeforeClass - oneTimeSetUp");
     	initEnviroment();
-    	Configuration.loadConfig("localhost", 9042,"test_keyspace","tx_keyspace");
+    	Configuration.loadConfig(node, port,"test_keyspace","tx_keyspace");
     }
  
     @AfterClass
@@ -53,8 +59,18 @@ public class ContextTest {
     public void setUp() {
     	System.out.println("@Before - setUp");
     	
-    	cluster = Cluster.builder().addContactPoint(node).withPort(port)
-				.build();
+		Builder builder = Cluster.builder();
+        builder.addContactPoint(node);//.withPort(Configuration.getPort());
+
+        PoolingOptions options = new PoolingOptions();
+        options.setCoreConnectionsPerHost(HostDistance.LOCAL, options.getMaxConnectionsPerHost(HostDistance.LOCAL));
+        builder.withPoolingOptions(options);
+        
+		cluster = builder
+                .withRetryPolicy(DowngradingConsistencyRetryPolicy.INSTANCE)
+                .withReconnectionPolicy(new ConstantReconnectionPolicy(100L))
+                .build();
+
 		session = cluster.connect();
     }
  
@@ -62,13 +78,25 @@ public class ContextTest {
     public void tearDown() {
         System.out.println("@After - tearDown");
         cluster.close();
-        discardData();
+//        discardData();
         
     }
  
     private static void initEnviroment() {
-    	Cluster cluster = Cluster.builder().addContactPoint(node).withPort(port).build();
-    	Session session = cluster.connect();
+    	Builder builder = Cluster.builder();
+        builder.addContactPoint(node);//.withPort(Configuration.getPort());
+
+        PoolingOptions options = new PoolingOptions();
+        options.setCoreConnectionsPerHost(HostDistance.LOCAL, options.getMaxConnectionsPerHost(HostDistance.LOCAL));
+        builder.withPoolingOptions(options);
+        
+        Cluster cluster = builder
+                .withRetryPolicy(DowngradingConsistencyRetryPolicy.INSTANCE)
+                .withReconnectionPolicy(new ConstantReconnectionPolicy(100L))
+                .build();
+
+        Session session = cluster.connect();
+		
     	Metadata metadata = cluster.getMetadata();
     	String keyspace = "test_keyspace";
     	String txKeyspace = "tx_keyspace";
@@ -106,8 +134,19 @@ public class ContextTest {
 	}
     
     private static void discardData() {
-    	Cluster cluster = Cluster.builder().addContactPoint("localhost").withPort(9042).build();
-    	Session session = cluster.connect();
+    	Builder builder = Cluster.builder();
+        builder.addContactPoint(node);//.withPort(Configuration.getPort());
+
+        PoolingOptions options = new PoolingOptions();
+        options.setCoreConnectionsPerHost(HostDistance.LOCAL, options.getMaxConnectionsPerHost(HostDistance.LOCAL));
+        builder.withPoolingOptions(options);
+        
+        Cluster cluster = builder
+                .withRetryPolicy(DowngradingConsistencyRetryPolicy.INSTANCE)
+                .withReconnectionPolicy(new ConstantReconnectionPolicy(100L))
+                .build();
+
+        Session session = cluster.connect();
     	String sql = "truncate test_keyspace.customer";
     	session.execute(sql);
     	sql = "truncate test_keyspace.seller_balance";
@@ -189,8 +228,6 @@ public class ContextTest {
     	assertEquals(sum, new BigDecimal(9));
     	//merge
     	ctx.merge("seller_balance", id, "amount");
-    	String sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
-    	assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
     	//increase
     	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
     	//sum 
@@ -203,20 +240,14 @@ public class ContextTest {
     	//incre
     	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
     	ctx.commit();
-    	sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
-     	assertEquals(session.execute(sql,id).one().getLong("count") ,2l);
      	//sum
     	sum = ctx.sum("seller_balance", id, "amount");
     	assertEquals(sum, new BigDecimal(10));
     	//merge
     	ctx.merge("seller_balance", id, "amount");
-    	sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
-     	assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
      	
      	//merge
      	ctx.merge("seller_balance", id, "amount");
-    	sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
-     	assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
      	
      	//decrease
     	ctx.incre("seller_balance", id, "amount", new BigDecimal(-5));
@@ -245,8 +276,6 @@ public class ContextTest {
     	assertEquals(sum, new BigDecimal(9));
     	//merge
     	ctx.merge(table, mapKey, "amount");
-    	String sql = "select count(1) as count from test_keyspace.seller_balance_complex where company = '" + company + "' and id = " + id;
-    	assertEquals(session.execute(sql).one().getLong("count") ,1l);
     	//increase
     	ctx.incre(table, mapKey, "amount", new BigDecimal(1));
     	//sum 
@@ -259,20 +288,14 @@ public class ContextTest {
     	//incre
     	ctx.incre(table, mapKey, "amount", new BigDecimal(1));
     	ctx.commit();
-    	sql = "select count(1) as count from test_keyspace.seller_balance_complex where company = '" + company + "' and id = " + id;
-     	assertEquals(session.execute(sql).one().getLong("count") ,2l);
      	//sum
     	sum = ctx.sum(table, mapKey, "amount");
     	assertEquals(sum, new BigDecimal(10));
     	//merge
     	ctx.merge(table, mapKey, "amount");
-    	sql = "select count(1) as count from test_keyspace.seller_balance_complex where company = '" + company + "' and id = " + id;
-     	assertEquals(session.execute(sql).one().getLong("count") ,1l);
      	
      	//merge
      	ctx.merge(table, mapKey, "amount");
-    	sql = "select count(1) as count from test_keyspace.seller_balance_complex where company = '" + company + "' and id = " + id;
-     	assertEquals(session.execute(sql).one().getLong("count") ,1l);
      	ctx.close();
 	}
     
@@ -379,21 +402,57 @@ public class ContextTest {
     }
     
     @Test
+    public void testSum1(){
+    	Context ctx = (Context) Context.start();
+    	int id = 123;
+    	String sql = "select * from test_keyspace.seller_balance where id = " + id;
+    	System.out.println(ctx.sum("seller_balance", id, "amount"));
+    }
+    
+    @Test
+    public void testMerge1(){
+    	Context ctx = (Context) Context.start();
+    	int id = 123;
+    	//increase
+    	ctx.merge("seller_balance", id, "amount");
+//    	ctx.merge("seller_balance", id, "amount");
+    }
+    
+    @Test
     public void testMerge(){
+    	
     	Context ctx = (Context) Context.start();
     	int id = 123;
     	//increase
     	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
     	ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
     	ctx.commit();
     	ctx.merge("seller_balance", id, "amount");
     	String sql = "select count(1) as count from test_keyspace.seller_balance where id =?";
-     	assertEquals(session.execute(sql,id).one().getLong("count") ,1l);
+     	assertEquals(ctx.sum("seller_balance", id, "amount") , new BigDecimal(6));
+     	ctx.merge("seller_balance", id, "amount");
+     	assertEquals(ctx.sum("seller_balance", id, "amount") , new BigDecimal(6));
+     	ctx.incre("seller_balance", id, "amount", new BigDecimal(4));
+     	ctx.commit();
+     	assertEquals(ctx.sum("seller_balance", id, "amount") , new BigDecimal(10));
+     	ctx.merge("seller_balance", id, "amount");
+     	assertEquals(ctx.sum("seller_balance", id, "amount") , new BigDecimal(10));
+     	ctx.merge("seller_balance", id, "amount");
+     	assertEquals(ctx.sum("seller_balance", id, "amount") , new BigDecimal(10));
+//     	ctx.merge("seller_balance", id, "amount");
+//     	assertEquals(ctx.sum("seller_balance", id, "amount") , new BigDecimal(16));
+//     	assertEquals(session.execute(sql,id).one().getLong("count") ,6l);
+//     	
+//     	assertEquals(new BigDecimal(4),ctx.sum("seller_balance", id, "amount"));
+//     	ctx.merge("seller_balance", id, "amount");
+//     	assertEquals(session.execute(sql,id).one().getLong("count") ,3l);
+//     	
+//    	assertEquals(new BigDecimal(4),ctx.sum("seller_balance", id, "amount"));
     }
    
     @Test
     public void testMergeConcurency(){
+    	
     	Context ctx = (Context) Context.start();
     	int id = 123;
     	//increase
@@ -403,7 +462,7 @@ public class ContextTest {
     	ctx.commit();
     	//
 		ExecutorService executor = Executors.newFixedThreadPool(50);
-		for (int i = 0; i < 100; i++) {
+		for (int i = 0; i < 3; i++) {
 			Context ctx1 = (Context) Context.start();
 			Runnable worker = new MergeThread(ctx1, "" + i);
 			executor.execute(worker);
@@ -418,25 +477,63 @@ public class ContextTest {
 		assertEquals(ctx.sum("seller_balance", id, "amount"),new BigDecimal(9));
     }
     
+    @Test
+    public void testInsert1(){
+    	discardData();
+    	Context ctx = (Context) Context.start();
+    	Context ctx2 = (Context) Context.start();
+    	int id = 123;
+    	BigDecimal res = new BigDecimal(3);
+    	ctx2.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	try {
+    		Thread.sleep(2000);
+    	} catch (InterruptedException e) {
+    		// TODO Auto-generated catch block
+    		e.printStackTrace();
+    	}
+    	//increase
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.commit();
+    	//
+    	ctx.merge("seller_balance", id, "amount");
+    	ctx2.commit();
+		assertEquals(ctx.sum("seller_balance", id, "amount"),new BigDecimal(4));
+    }
     
     @Test
     public void testMergeInsertConcurency(){
+    	discardData();
     	Context ctx = (Context) Context.start();
     	int id = 123;
-    	BigDecimal res = new BigDecimal(9);
+    	BigDecimal res = new BigDecimal(3);
     	//increase
     	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
     	ctx.commit();
     	//
 		ExecutorService executor = Executors.newFixedThreadPool(50);
 		for (int i = 0; i < 100; i++) {
 			Context ctx1 = (Context) Context.start();
 			if(i%2==0){
+				if(i%10==0){try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}}
+
 				Runnable worker = new MergeThread(ctx1, "" + i);
 				executor.execute(worker);
 			}else{
+				if(i%3==0){try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}}
 				res = res.add(new BigDecimal(1));
 				Runnable worker = new InsertThread(ctx1, "" + i);
 				executor.execute(worker);
@@ -452,6 +549,34 @@ public class ContextTest {
 		assertEquals(ctx.sum("seller_balance", id, "amount"),res);
     }
     
+    @Test
+    public void testSumInsertConcurency(){
+    	discardData();
+    	Context ctx = (Context) Context.start();
+    	int id = 123;
+    	BigDecimal res = new BigDecimal(3);
+    	//increase
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	ctx.commit();
+    	//
+		ExecutorService executor = Executors.newFixedThreadPool(50);
+		for (int i = 0; i < 500; i++) {
+			Context ctx1 = (Context) Context.start();
+			res = res.add(new BigDecimal(1));
+			Runnable worker = new InsertThread(ctx1, "" + i);
+			executor.execute(worker);
+			
+		}
+		executor.shutdown();
+		while (!executor.isTerminated()) {
+		}
+		System.out.println("Finished all threads");
+    	//
+		
+		assertEquals(ctx.sum("seller_balance", id, "amount"),res);
+    }
     
     //
 }

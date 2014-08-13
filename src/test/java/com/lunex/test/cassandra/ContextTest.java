@@ -36,7 +36,7 @@ import com.lunex.core.utils.Configuration;
  * Unit test for simple App.
  */
 public class ContextTest {
-	private static String node = "192.168.93.38";
+	private static String node = "localhost";
 	private static int port = 9160;
 	Cluster cluster;
 	Session session;
@@ -78,7 +78,7 @@ public class ContextTest {
     public void tearDown() {
         System.out.println("@After - tearDown");
         cluster.close();
-//        discardData();
+        discardData();
         
     }
  

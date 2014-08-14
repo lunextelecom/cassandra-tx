@@ -3,6 +3,8 @@ package com.lunex.core.utils;
 import java.security.MessageDigest;
 import java.util.UUID;
 
+import com.datastax.driver.core.BatchStatement;
+import com.datastax.driver.core.Session;
 import com.datastax.driver.core.utils.UUIDs;
 
 public class Utils {
@@ -84,4 +86,5 @@ public class Utils {
 			return null;
 		}
 	}
+	
 }

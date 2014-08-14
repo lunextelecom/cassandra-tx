@@ -12,7 +12,9 @@ public class Configuration {
 	
 	private static int port = 9042;
 	
-	public static int CHECKSUM_LENGTH = 8;
+	public final static int CHECKSUM_LENGTH = 8;
+	
+	private static int batchSize = 100;
 	
 	public static void loadConfig(String iNode, int iPort, String iKeyspace, String itxKeyspace){
 		node = iNode;
@@ -23,6 +25,10 @@ public class Configuration {
 	}
 
 	//get, set
+	public static int getBatchSize() {
+		return batchSize;
+	}
+	
 	public static String getNode() {
 		return node;
 	}

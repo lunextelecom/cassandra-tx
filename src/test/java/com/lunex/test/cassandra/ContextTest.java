@@ -26,6 +26,7 @@ import com.datastax.driver.core.Session;
 import com.datastax.driver.core.Cluster.Builder;
 import com.datastax.driver.core.policies.ConstantReconnectionPolicy;
 import com.datastax.driver.core.policies.DowngradingConsistencyRetryPolicy;
+import com.lunex.core.cassandra.Airthmetic;
 import com.lunex.core.cassandra.Context;
 import com.lunex.core.cassandra.ContextFactory;
 import com.lunex.core.utils.Configuration;
@@ -216,50 +217,50 @@ public class ContextTest {
     
     @Test
     public void testSellerBalance() {
-    	Context ctx = (Context) Context.start();
+    	Airthmetic atm = new Airthmetic(true);
     	int id = 123;
     	//increase
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
-    	ctx.commit();
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(3));
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(5));
+    	atm.commit();
     	//sum
-    	BigDecimal sum = ctx.sum("seller_balance", id, "amount");
+    	BigDecimal sum = atm.sum("seller_balance", id, "amount");
     	assertEquals(sum, new BigDecimal(9));
     	//merge
-    	ctx.merge("seller_balance", id, "amount");
+    	atm.merge("seller_balance", id, "amount");
     	//increase
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(1));
     	//sum 
-    	sum = ctx.sum("seller_balance", id, "amount");
+    	sum = atm.sum("seller_balance", id, "amount");
     	assertEquals(sum, new BigDecimal(10));
-    	ctx.rollback();
+    	atm.rollback();
     	//sum
-    	sum = ctx.sum("seller_balance", id, "amount");
+    	sum = atm.sum("seller_balance", id, "amount");
     	assertEquals(sum, new BigDecimal(9));
     	//incre
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
-    	ctx.commit();
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	atm.commit();
      	//sum
-    	sum = ctx.sum("seller_balance", id, "amount");
+    	sum = atm.sum("seller_balance", id, "amount");
     	assertEquals(sum, new BigDecimal(10));
     	//merge
-    	ctx.merge("seller_balance", id, "amount");
+    	atm.merge("seller_balance", id, "amount");
      	
      	//merge
-     	ctx.merge("seller_balance", id, "amount");
+     	atm.merge("seller_balance", id, "amount");
      	
      	//decrease
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(-5));
-    	ctx.commit();
-    	sum = ctx.sum("seller_balance", id, "amount");
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(-5));
+    	atm.commit();
+    	sum = atm.sum("seller_balance", id, "amount");
     	assertEquals(sum, new BigDecimal(5));
-    	ctx.close();
+    	atm.close();
 	}
     
     @Test
     public void testSellerBalanceComplex() {
-    	Context ctx = (Context) Context.start();
+    	Airthmetic atm = new Airthmetic(true);
     	String table = "seller_balance_complex";
     	Map<String, Object> mapKey = new HashMap<String, Object>();
     	String company = "lunex";
@@ -267,36 +268,36 @@ public class ContextTest {
     	mapKey.put("company", company);
     	mapKey.put("id", id);
     	//increase
-    	ctx.incre(table, mapKey, "amount", new BigDecimal(1));
-    	ctx.incre(table, mapKey, "amount", new BigDecimal(3));
-    	ctx.incre(table, mapKey, "amount", new BigDecimal(5));
-    	ctx.commit();
+    	atm.incre(table, mapKey, "amount", new BigDecimal(1));
+    	atm.incre(table, mapKey, "amount", new BigDecimal(3));
+    	atm.incre(table, mapKey, "amount", new BigDecimal(5));
+    	atm.commit();
     	//sum
-    	BigDecimal sum = ctx.sum(table, mapKey, "amount");
+    	BigDecimal sum = atm.sum(table, mapKey, "amount");
     	assertEquals(sum, new BigDecimal(9));
     	//merge
-    	ctx.merge(table, mapKey, "amount");
+    	atm.merge(table, mapKey, "amount");
     	//increase
-    	ctx.incre(table, mapKey, "amount", new BigDecimal(1));
+    	atm.incre(table, mapKey, "amount", new BigDecimal(1));
     	//sum 
-    	sum = ctx.sum(table, mapKey, "amount");
+    	sum = atm.sum(table, mapKey, "amount");
     	assertEquals(sum, new BigDecimal(10));
-    	ctx.rollback();
+    	atm.rollback();
     	//sum
-    	sum = ctx.sum(table, mapKey, "amount");
+    	sum = atm.sum(table, mapKey, "amount");
     	assertEquals(sum, new BigDecimal(9));
     	//incre
-    	ctx.incre(table, mapKey, "amount", new BigDecimal(1));
-    	ctx.commit();
+    	atm.incre(table, mapKey, "amount", new BigDecimal(1));
+    	atm.commit();
      	//sum
-    	sum = ctx.sum(table, mapKey, "amount");
+    	sum = atm.sum(table, mapKey, "amount");
     	assertEquals(sum, new BigDecimal(10));
     	//merge
-    	ctx.merge(table, mapKey, "amount");
+    	atm.merge(table, mapKey, "amount");
      	
      	//merge
-     	ctx.merge(table, mapKey, "amount");
-     	ctx.close();
+     	atm.merge(table, mapKey, "amount");
+     	atm.close();
 	}
     
     @Test
@@ -377,51 +378,52 @@ public class ContextTest {
     
     @Test
     public void testIncre(){
-    	Context ctx = (Context) Context.start();
+    	Airthmetic atm = new Airthmetic(true);
     	int id = 123;
     	//increase
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
-    	ctx.commit();
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(3));
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(5));
+    	atm.commit();
+    	Context ctx = (Context) Context.start();
     	String sql = "select * from test_keyspace.seller_balance where id = " + id;
     	assertEquals(3,ctx.execute(sql).size());
     }
   
     @Test
     public void testSum(){
-    	Context ctx = (Context) Context.start();
+    	Airthmetic atm = new Airthmetic(true);
     	int id = 123;
     	//increase
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
-    	ctx.commit();
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(3));
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(5));
+    	atm.commit();
     	String sql = "select * from test_keyspace.seller_balance where id = " + id;
-    	assertEquals(new BigDecimal(9),ctx.sum("seller_balance", id, "amount"));
+    	assertEquals(new BigDecimal(9),atm.sum("seller_balance", id, "amount"));
     }
     
     @Test
     public void testSum1(){
-    	Context ctx = (Context) Context.start();
+    	Airthmetic atm = new Airthmetic(true);
     	int id = 123;
     	String sql = "select * from test_keyspace.seller_balance where id = " + id;
-    	System.out.println(ctx.sum("seller_balance", id, "amount"));
+    	System.out.println(atm.sum("seller_balance", id, "amount"));
     }
     
     @Test
     public void testMerge1(){
-    	Context ctx = (Context) Context.start();
+    	Airthmetic atm = new Airthmetic(true);
     	int id = 123;
     	//increase
-    	ctx.merge("seller_balance", id, "amount");
+    	atm.merge("seller_balance", id, "amount");
 //    	ctx.merge("seller_balance", id, "amount");
     }
     
     @Test
     public void testMerge(){
     	
-    	Context ctx = (Context) Context.start();
+    	Airthmetic ctx = new Airthmetic(true);
     	int id = 123;
     	//increase
     	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
@@ -452,18 +454,17 @@ public class ContextTest {
    
     @Test
     public void testMergeConcurency(){
-    	
-    	Context ctx = (Context) Context.start();
+    	Airthmetic atm = new Airthmetic(true);
     	int id = 123;
     	//increase
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(3));
-    	ctx.incre("seller_balance", id, "amount", new BigDecimal(5));
-    	ctx.commit();
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(1));
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(3));
+    	atm.incre("seller_balance", id, "amount", new BigDecimal(5));
+    	atm.commit();
     	//
 		ExecutorService executor = Executors.newFixedThreadPool(50);
 		for (int i = 0; i < 3; i++) {
-			Context ctx1 = (Context) Context.start();
+			Airthmetic ctx1 = new Airthmetic(true);
 			Runnable worker = new MergeThread(ctx1, "" + i);
 			executor.execute(worker);
 			
@@ -474,14 +475,14 @@ public class ContextTest {
 		System.out.println("Finished all threads");
     	//
 		
-		assertEquals(ctx.sum("seller_balance", id, "amount"),new BigDecimal(9));
+		assertEquals(atm.sum("seller_balance", id, "amount"),new BigDecimal(9));
     }
     
     @Test
     public void testInsert1(){
+    	Airthmetic ctx = new Airthmetic(true);
     	discardData();
-    	Context ctx = (Context) Context.start();
-    	Context ctx2 = (Context) Context.start();
+    	Airthmetic ctx2 = new Airthmetic(true);
     	int id = 123;
     	BigDecimal res = new BigDecimal(3);
     	ctx2.incre("seller_balance", id, "amount", new BigDecimal(1));
@@ -505,7 +506,7 @@ public class ContextTest {
     @Test
     public void testMergeInsertConcurency(){
     	discardData();
-    	Context ctx = (Context) Context.start();
+    	Airthmetic ctx = new Airthmetic(true);
     	int id = 123;
     	BigDecimal res = new BigDecimal(3);
     	//increase
@@ -516,24 +517,24 @@ public class ContextTest {
     	//
 		ExecutorService executor = Executors.newFixedThreadPool(50);
 		for (int i = 0; i < 100; i++) {
-			Context ctx1 = (Context) Context.start();
+			Airthmetic ctx1 = new Airthmetic(true);
 			if(i%2==0){
-				if(i%10==0){try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}}
+//				if(i%10==0){try {
+//					Thread.sleep(1000);
+//				} catch (InterruptedException e) {
+//					// TODO Auto-generated catch block
+//					e.printStackTrace();
+//				}}
 
 				Runnable worker = new MergeThread(ctx1, "" + i);
 				executor.execute(worker);
 			}else{
-				if(i%3==0){try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}}
+//				if(i%3==0){try {
+//					Thread.sleep(1000);
+//				} catch (InterruptedException e) {
+//					// TODO Auto-generated catch block
+//					e.printStackTrace();
+//				}}
 				res = res.add(new BigDecimal(1));
 				Runnable worker = new InsertThread(ctx1, "" + i);
 				executor.execute(worker);
@@ -552,7 +553,7 @@ public class ContextTest {
     @Test
     public void testSumInsertConcurency(){
     	discardData();
-    	Context ctx = (Context) Context.start();
+    	Airthmetic ctx = new Airthmetic(true);
     	int id = 123;
     	BigDecimal res = new BigDecimal(3);
     	//increase
@@ -563,7 +564,7 @@ public class ContextTest {
     	//
 		ExecutorService executor = Executors.newFixedThreadPool(50);
 		for (int i = 0; i < 500; i++) {
-			Context ctx1 = (Context) Context.start();
+			Airthmetic ctx1 = new Airthmetic(true);
 			res = res.add(new BigDecimal(1));
 			Runnable worker = new InsertThread(ctx1, "" + i);
 			executor.execute(worker);
@@ -577,6 +578,14 @@ public class ContextTest {
 		
 		assertEquals(ctx.sum("seller_balance", id, "amount"),res);
     }
-    
+
+    @Test
+    public void testInsertNoTransaction(){
+    	Airthmetic ctx = new Airthmetic(false);
+    	int id = 123;
+    	ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
+		assertEquals(ctx.sum("seller_balance", id, "amount"),new BigDecimal(1));
+		ctx.close();
+    }
     //
 }

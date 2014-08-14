@@ -1,13 +1,13 @@
 package com.lunex.test.cassandra;
 
-import com.lunex.core.cassandra.Context;
+import com.lunex.core.cassandra.Airthmetic;
 
 public class MergeThread implements Runnable {
 
-    private Context ctx;
+    private Airthmetic ctx;
     private String name;
 
-    public MergeThread(Context ctx, String name){
+    public MergeThread(Airthmetic ctx, String name){
         this.ctx=ctx;
         this.name = name;
     }

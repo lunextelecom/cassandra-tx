@@ -136,22 +136,41 @@ ctx.rollback();//disregard temp data
 ctx.close();//disregard temp data & close context
 ```
 ####arithmetic function
-#####key : single column
+#####key : single column & use transaction
 ```
 //config node, port, original keyspace, temp keyspace(contains tmp table)
 Configuration.loadConfig("localhost", 9042,"test_keyspace","tx_keyspace");
-Context ctx = (Context) Context.start();
+Airthmetic atm = new Airthmetic(true);
 int id = 123;
 //increase
-ctx.incre("seller_balance", id, "amount", new BigDecimal(1));
-
+atm.incre("seller_balance", id, "amount", new BigDecimal(1));
+atm.commit();
 //sum
-BigDecimal sum = ctx.sum("seller_balance", id, "amount");
+BigDecimal sum = atm.sum("seller_balance", id, "amount");
 
 //merge
-ctx.merge("seller_balance", id, "amount");
+atm.merge("seller_balance", id, "amount");
 
-ctx.close();
+atm.close();
+```
+#####key : single column & not use transaction
+```
+//config node, port, original keyspace, temp keyspace(contains tmp table)
+Configuration.loadConfig("localhost", 9042,"test_keyspace","tx_keyspace");
+Airthmetic atm = new Airthmetic(false);
+int id = 123;
+//increase
+atm.incre("seller_balance", id, "amount", new BigDecimal(1));
+
+//sum
+BigDecimal sum = atm.sum("seller_balance", id, "amount");
+
+//merge
+atm.merge("seller_balance", id, "amount");
+
+//do not need to commit
+
+atm.close();
 ```
 
 #####key : compound column
@@ -163,7 +182,7 @@ CREATE TABLE test_keyspace.seller_balance_complex
 	 ) WITH CLUSTERING ORDER BY (updateid DESC)
 ```
 ```
-Context ctx = (Context) Context.start();
+Airthmetic atm = new Airthmetic(false);
 String table = "seller_balance_complex";
 Map<String, Object> mapKey = new HashMap<String, Object>();
 String company = "lunex";
@@ -171,9 +190,9 @@ int id = 123;
 mapKey.put("company", company);
 mapKey.put("id", id);
 //increase
-ctx.incre(table, mapKey, "amount", new BigDecimal(1));
+atm.incre(table, mapKey, "amount", new BigDecimal(1));
 //sum
-BigDecimal sum = ctx.sum(table, mapKey, "amount");
+BigDecimal sum = atm.sum(table, mapKey, "amount");
 
-ctx.close();//disregard temp data & close context
+atm.close();//disregard temp data & close context
 ```

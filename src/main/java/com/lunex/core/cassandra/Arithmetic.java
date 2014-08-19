@@ -3,7 +3,6 @@ package com.lunex.core.cassandra;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,21 +21,43 @@ import com.lunex.core.utils.Configuration;
 import com.lunex.core.utils.RowKey;
 import com.lunex.core.utils.Utils;
 
-public class Airthmetic implements IAirthmetic {
+/**
+ * The Class Arithmetic.
+ */
+public class Arithmetic implements IArithmetic {
 
-	private static final Logger logger = LoggerFactory.getLogger(Airthmetic.class);
+	/** The Constant logger. */
+	private static final Logger logger = LoggerFactory.getLogger(Arithmetic.class);
 
-	private String normalType = "N";
-	private String mergeType = "MS";
-	private String tombstoneType = "MT";
+	/** The normal type. */
+	private static final String NORMAL_TYPE = "N";
 	
+	/** The merge type. */
+	private static final String MERGE_TYPE = "MS";
+	
+	/** The tombstone type. */
+	private static final String TOMBSTONE_TYPE = "MT";
+	
+	/**  The context. */
 	private Context ctx;
+	
+	/** The isUseTransaction. */
 	private Boolean isUseTransaction;
-	public Airthmetic(boolean isUseTransaction) {
+
+	/**
+	 * The Constructor.
+	 *
+	 * @param isUseTransaction = False: not use transaction, insert direct to original table
+	 * isUseTransaction = True: use transaction
+	 */
+	public Arithmetic(boolean isUseTransaction) {
 		ctx = (Context) Context.start();
 		this.isUseTransaction = isUseTransaction;
 	}
 	
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IArithmetic#incre(java.lang.String, java.lang.Object, java.lang.String, java.math.BigDecimal)
+	 */
 	public void incre(String cf, Object key, String column, BigDecimal amount) {
 		try {
 			StringBuilder statement = new StringBuilder();
@@ -76,7 +97,7 @@ public class Airthmetic implements IAirthmetic {
 			params.add(amount);
 			statement.append(valueSql);
 			if(isUseTransaction){
-				ctx.execute4Airthmetic(statement.toString(),params.toArray());
+				ctx.execute4Arithmetic(statement.toString(),params.toArray());
 			}else{
 				ctx.executeNonContext(statement.toString(),params.toArray());
 			}
@@ -86,15 +107,18 @@ public class Airthmetic implements IAirthmetic {
 		}
 	}
 	
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IArithmetic#merge(java.lang.String, java.lang.Object, java.lang.String)
+	 */
 	public void merge(String cf, Object key, String column) {
 		try {
 			/**
-			 * 1. (cassandra operation) normal_rows, tombstone_rows, merge_rows = get rows for sum
+			 * 1. (cassandra operation) normal_rows, tombstone_rows, lastest_merge_rows = get rows for sum
 			 * */
 			logger.info("1. (cassandra operation) normal_rows, tombstone_rows, merge_rows = get rows for sum");
 			cf = cf.replaceFirst(Configuration.getKeyspace() + ".","");
 			List<Object> params = new ArrayList<Object>();
-			final StringBuilder selectSql = artCreateSelectStatement(cf, key, params);
+			final StringBuilder selectSql = createSelectStatement(cf, key, params);
 			UUID lastestUpdateid = null;
 			UUID lastestMergeUUID = null;
 			ResultSet resultSet = ctx.executeNonContext(selectSql.toString(), params.toArray());
@@ -114,14 +138,14 @@ public class Airthmetic implements IAirthmetic {
 					numRow++;
 					final Row row = resultSet.one();
 					if(lastestUpdateid == null){
-						if(row.getString("type").equalsIgnoreCase(mergeType)){
+						if(row.getString("type").equalsIgnoreCase(MERGE_TYPE)){
 							firstIsMerge = true;
 						}
 						lastestUpdateid =row.getUUID("updateid");
 					}
-					if(row.getString("type").equalsIgnoreCase(normalType)){
+					if(row.getString("type").equalsIgnoreCase(NORMAL_TYPE)){
 						mapNormal.put(row.getUUID("updateid"), row);
-					}else if(row.getString("type").equalsIgnoreCase(mergeType)){
+					}else if(row.getString("type").equalsIgnoreCase(MERGE_TYPE)){
 						if(mapMergeVer.size()==0){
 							mapMergeVer.put(row.getString("version"), row);
 							mapMergeUUID.put(row.getUUID("updateid"), row);
@@ -146,11 +170,11 @@ public class Airthmetic implements IAirthmetic {
 			 * */
 			logger.info("2.discard invalid tombstone_rows");
 			for (Row row : lstAllTS) {
-				if((mapNormal.containsKey(row.getUUID("updateid")) || mapMergeUUID.containsKey(row.getUUID("updateid"))) && mapMergeVer.containsKey(row.getString("version"))){
+				if(mapMergeVer.containsKey(row.getString("version"))){
 					if(mapNormal.containsKey(row.getUUID("updateid"))){
 						lstValidTS.add(row);
 						lstNorValidTS.add(mapNormal.get(row.getUUID("updateid")));
-					}else{
+					}else if(mapMergeUUID.containsKey(row.getUUID("updateid"))){
 						Row tmpUUID = mapMergeUUID.get(row.getUUID("updateid"));
 						Row tmpVer = mapMergeVer.get(row.getString("version"));
 						if(!tmpVer.getString("version").equalsIgnoreCase(tmpUUID.getString("version")) ||
@@ -165,9 +189,9 @@ public class Airthmetic implements IAirthmetic {
 			}
 			
 			/**
-			 * 3. sum = normal_rows + valid_tombstone_rows + merge_rows
+			 * 3. sum = normal_rows + valid_tombstone_rows + lastest_merge_rows, records in the left of lastest_merge_rows are not counted
 			 * */
-			logger.info("sum = normal_rows + valid_tombstone_rows + merge_rows");
+			logger.info("sum = normal_rows + valid_tombstone_rows + lastest_merge_rows, records in the left of lastest_merge_rows are not counted");
 			BigDecimal amount = new BigDecimal(0);
 			for (Row row:  mapNormal.values()) {
 				if(lastestMergeUUID != null){
@@ -203,14 +227,14 @@ public class Airthmetic implements IAirthmetic {
 				 * 5. (cassandra operation) insert tombstone for normal + merged rows with newversion
 				 * */
 				logger.info("5. (cassandra operation) insert tombstone for normal + merged rows with newversion");
-				artInsertTombstone(cf, mapNormal.values(), tombstoneType, newversion);
-				artInsertTombstone(cf, mapMergeVer.values(), tombstoneType, newversion);
+				insertTombstone(cf, mapNormal.values(), TOMBSTONE_TYPE, newversion);
+				insertTombstone(cf, mapMergeVer.values(), TOMBSTONE_TYPE, newversion);
 				
 				/**
 				 * 6.(cassandra operation) insert merge record with sum and newversion. this operation make tombstone valid
 				 * */
 				logger.info("6.(cassandra operation) insert merge record with sum and newversion. this operation make tombstone valid");
-				artInsertMergeRow(cf, key, mergeType, newversion, column, amount, lastestUpdateid);
+				insertMergeRow(cf, key, MERGE_TYPE, newversion, column, amount, lastestUpdateid);
 			}
 			
 			
@@ -219,13 +243,13 @@ public class Airthmetic implements IAirthmetic {
 			 * */
 			logger.info("7.(cassandra operation, sometimes) delete normal and merge records with valid tombstone. Do not send this request if there isn't any records to delete.");
 			
-			artDeleteNormalRecord(cf, lstNorValidTS);
-			artDeleteMergedRecord(cf, lstMerValidTS);
+			deleteNormalRecord(cf, lstNorValidTS);
+			deleteMergedRecord(cf, lstMerValidTS);
 			
 			/**
 			 * 8.(cassandra operation, sometimes) delete invalid tombstone older than 10 mins if there are any, do not send this request if there isnt' any match
 			 * */
-			logger.info("8.(cassandra operation, sometimes) delete invalid tombstone older than 10 mins if there are any, do not send this request if there isnt' any match");
+			logger.info("8.(cassandra operation, sometimes) delete invalid tombstone, invalid merge older than 10 mins if there are any, do not send this request if there isnt' any match");
 			List<Row> lstDelete = new ArrayList<Row>();
 			for (Row row : lstInvalidTS) {
 				int minutes = Utils.minutesDiff(row.getUUID("updateid"), lastestUpdateid);
@@ -234,37 +258,37 @@ public class Airthmetic implements IAirthmetic {
 					
 				}
 			}
-			artDeleteNormalRecord(cf, lstDelete);
+			deleteNormalRecord(cf, lstDelete);
 		} catch (Exception e) {
 			logger.error("merge failed . Message :" + e.getMessage());
 			throw new UnsupportedOperationException("merge failed . Message :" + e.getMessage());
 		}
 	}
 
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IArithmetic#sum(java.lang.String, java.lang.Object, java.lang.String)
+	 */
 	public BigDecimal sum(String cf, Object key, String column) {
 		try {
 			/**
-			 * 1. (cassandra operation) normal_rows, tombstone_rows, merge_rows = get rows for sum
+			 * 1. (cassandra operation) normal_rows, tombstone_rows, lastest_merge_rows = get rows for sum
 			 * */
 			logger.info("1. (cassandra operation) normal_rows, tombstone_rows, merge_rows = get rows for sum");
 			cf = cf.replaceFirst(Configuration.getKeyspace() + ".","");
 			List<Object> params = new ArrayList<Object>();
-			final StringBuilder selectSql = artCreateSelectStatement(cf, key, params);
+			final StringBuilder selectSql = createSelectStatement(cf, key, params);
 			List<Row> resultSet = ctx.execute(selectSql.toString(), params.toArray());
 			Map<UUID, Row> mapNormal = new HashMap<UUID, Row>();
 			Map<UUID, Row> mapMergeUUID = new HashMap<UUID, Row>();
 			Map<String, Row> mapMergeVer = new HashMap<String, Row>();
 			List<Row> lstAllTS = new ArrayList<Row>();
-			List<Row> lstInvalidTS = new ArrayList<Row>();
 			List<Row> lstValidTS = new ArrayList<Row>();
 			UUID lastestMergeUUID = null;
-			List<Row> lstNorValidTS = new ArrayList<Row>();
-			List<Row> lstMerValidTS = new ArrayList<Row>();
 			if(resultSet != null){
 				for (Row row : resultSet) {
-					if(row.getString("type").equalsIgnoreCase(normalType)){
+					if(row.getString("type").equalsIgnoreCase(NORMAL_TYPE)){
 						mapNormal.put(row.getUUID("updateid"), row);
-					}else if(row.getString("type").equalsIgnoreCase(mergeType)){
+					}else if(row.getString("type").equalsIgnoreCase(MERGE_TYPE)){
 						if(mapMergeVer.size()==0){
 							mapMergeVer.put(row.getString("version"), row);
 							mapMergeUUID.put(row.getUUID("updateid"), row);
@@ -284,31 +308,24 @@ public class Airthmetic implements IAirthmetic {
 			 * */
 			logger.info("2.discard invalid tombstone_rows");
 			for (Row row : lstAllTS) {
-				if((mapNormal.containsKey(row.getUUID("updateid")) || mapMergeUUID.containsKey(row.getUUID("updateid"))) && mapMergeVer.containsKey(row.getString("version"))){
+				if(mapMergeVer.containsKey(row.getString("version"))){
 					if(mapNormal.containsKey(row.getUUID("updateid"))){
 						lstValidTS.add(row);
-						lstNorValidTS.add(mapNormal.get(row.getUUID("updateid")));
-					}else{
+					}else if(mapMergeUUID.containsKey(row.getUUID("updateid"))){
 						Row tmpUUID = mapMergeUUID.get(row.getUUID("updateid"));
 						Row tmpVer = mapMergeVer.get(row.getString("version"));
 						if(!tmpVer.getString("version").equalsIgnoreCase(tmpUUID.getString("version")) ||
 								!tmpVer.getUUID("updateid").toString().equalsIgnoreCase(tmpUUID.getUUID("updateid").toString())){
 							lstValidTS.add(row);
-							lstMerValidTS.add(mapMergeUUID.get(row.getUUID("updateid")));
 						}
 					}
-				}else{
-					lstInvalidTS.add(row);
 				}
 			}
 			
 			/**
-			 * 3. sum = normal_rows + valid_tombstone_rows + merge_rows
+			 * 3. sum = normal_rows + valid_tombstone_rows + lastest_merge_rows, records in the left of lastest_merge_rows are not counted
 			 * */
-			/**
-			 * 3. sum = normal_rows + valid_tombstone_rows + merge_rows
-			 * */
-			logger.info("sum = normal_rows + valid_tombstone_rows + merge_rows");
+			logger.info("sum = normal_rows + valid_tombstone_rows + lastest_merge_rows, records in the left of lastest_merge_rows are not counted");
 			BigDecimal amount = new BigDecimal(0);
 			for (Row row:  mapNormal.values()) {
 				if(lastestMergeUUID != null){
@@ -338,7 +355,15 @@ public class Airthmetic implements IAirthmetic {
 		}
 	}
 
-	private StringBuilder artCreateSelectStatement(String cf, Object key,
+	/**
+	 * create select statement.
+	 *
+	 * @param cf : column family
+	 * @param key 
+	 * @param params 
+	 * @return the StringBuilder
+	 */
+	private StringBuilder createSelectStatement(String cf, Object key,
 			List<Object> params) {
 		TableMetadata def = ContextFactory.getMapTableMetadata().get(cf);
 		StringBuilder selectSql = new StringBuilder("select * from " + Utils.getFullOriginalCF(cf) + " where ");
@@ -371,15 +396,35 @@ public class Airthmetic implements IAirthmetic {
 		return selectSql;
 	}
 	
-	private void artDeleteMergedRecord(String cf, final List<Row> rows) {
-		deleteAirthMeticRecord(cf, rows, null, null);
+	/**
+	 * Delete merged record.
+	 *
+	 * @param cf : column family
+	 * @param rows : rows for deleted
+	 */
+	private void deleteMergedRecord(String cf, final List<Row> rows) {
+		deleteArithmeticRecord(cf, rows, null, null);
 	}
 	
-	private void artDeleteNormalRecord(String cf, final List<Row> rows) {
-		deleteAirthMeticRecord(cf, rows, null, null);
+	/**
+	 * Delete normal record.
+	 *
+	 * @param cf : column family
+	 * @param rows : rows for deleted
+	 */
+	private void deleteNormalRecord(String cf, final List<Row> rows) {
+		deleteArithmeticRecord(cf, rows, null, null);
 	}
 	
-	private void deleteAirthMeticRecord(String cf, final List<Row> rows, String type, String version) {
+	/**
+	 * Delete Arithmetic record.
+	 *
+	 * @param cf : column family
+	 * @param rows : rows for deleted
+	 * @param type 
+	 * @param version 
+	 */
+	private void deleteArithmeticRecord(String cf, final List<Row> rows, String type, String version) {
 		if(rows == null || rows.isEmpty()){
 			return;
 		}
@@ -431,12 +476,20 @@ public class Airthmetic implements IAirthmetic {
 			}
 			ctx.executeBatch(batch, true);
 		} catch (Exception e) {
-			logger.error("deleteAirthMeticRecord failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
-			throw new UnsupportedOperationException("deleteAirthMeticRecord failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
+			logger.error("deleteArithmeticRecord failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
+			throw new UnsupportedOperationException("deleteArithmeticRecord failed, statement : " + statement.toString()+ ". Message :" + e.getMessage());
 		}
 	}
 
-	private void artInsertTombstone(String cf, Collection<Row> lstRow, String type, String version) {
+	/**
+	 * Insert tombstone record
+	 *
+	 * @param cf : column family
+	 * @param lstRow 
+	 * @param type the type
+	 * @param version the version
+	 */
+	private void insertTombstone(String cf, Collection<Row> lstRow, String type, String version) {
 		StringBuilder statement;
 		StringBuilder valueSql;
 		//get tablemetadata from dictionary
@@ -493,7 +546,18 @@ public class Airthmetic implements IAirthmetic {
 		}
 	}
 	
-	private void artInsertMergeRow(String cf, Object key, String type, String version, String column, BigDecimal amount, UUID updateId) {
+	/**
+	 * Insert merge row.
+	 *
+	 * @param cf : column family
+	 * @param key : row key
+	 * @param type 
+	 * @param version 
+	 * @param column 
+	 * @param amount 
+	 * @param updateId 
+	 */
+	private void insertMergeRow(String cf, Object key, String type, String version, String column, BigDecimal amount, UUID updateId) {
 		try {
 			StringBuilder statement = new StringBuilder();
 			StringBuilder valueSql = new StringBuilder();
@@ -541,14 +605,23 @@ public class Airthmetic implements IAirthmetic {
 	}
 
 
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IArithmetic#commit()
+	 */
 	public void commit() {
 		ctx.commit();
 	}
 
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IArithmetic#rollback()
+	 */
 	public void rollback() {
 		ctx.rollback();
 	}
 	
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IArithmetic#close()
+	 */
 	public void close() {
 		ctx.close();
 	}

@@ -1,5 +1,5 @@
-
 __author__ = 'jerryj'
+__update__ = 'duynguyen'
 
 import unittest
 import arithmetic
@@ -22,13 +22,12 @@ class MyTestCase(unittest.TestCase):
     def test_merge(self):
         cols = convert_to_cf_tuple([1, 5])
         merge(cols)
-        assert len(cols) > 1
+        assert len(cols) == 5
         merge(cols)
+        assert len(cols) == 3
         merge(cols)
-        merge(cols) #since age is 3, it take 4th merge to totally remove all invalid
-        assert sum_cols(cols) == 6
-        assert len(cols) == 1
-
+        assert len(cols) == 3
+        
     def test_incre_merge_overlap(self):
         cols = convert_to_cf_tuple([1, 5])
         t1 = TestHelper("m1")
@@ -158,6 +157,49 @@ class MyTestCase(unittest.TestCase):
         m2.delete_with_invalid_tombstone()
         assert sum_cols(cols, '1212') == 7
 
+    def test_merge_121332(self):
+        '''
+        m1.start
+        m2.start
+        m2.read_data
+        m1.finish
+        insert 2
+        m3.start
+        m3.finish
+        m2.finish
+        :return:
+        '''
+        cols = convert_to_cf_tuple([1, 5])
+        m1 = TestHelper("m1")
+        m2 = TestHelper("m2")
+        m3 = TestHelper("m3")
+        
+        m1.read_data(cols)
+        m2.read_data(cols)
+        
+        
+        
+        m1.insert_tombstone()
+        m1.insert_merge()
+        m1.delete_with_valid_tombstone()
+        m1.delete_with_invalid_tombstone()
+        
+        m1.incre(2)
+        
+        m3.read_data(cols)
+        m3.insert_tombstone()
+        m3.insert_merge()
+        m3.delete_with_valid_tombstone()
+        m3.delete_with_invalid_tombstone()
+        
+        assert sum_cols(cols, '121332') == 8
+        
+        m2.insert_tombstone()
+        m2.insert_merge()
+        m2.delete_with_valid_tombstone()
+        m2.delete_with_invalid_tombstone()
+        m1.incre(2)
+        assert sum_cols(cols, '121332') == 10
 
     def test_sum(self):
         cols = [(3,'S',1,9),(3,'T',2,9),(4,'N',None,1),(4,'T',2,1)]
@@ -192,12 +234,15 @@ class TestHelper(object):
 
     def __load(self):
         self.snapshot = list(self.cols)
-        valid_cols, invalid_tombstones, valid_tombstones = break_down_cols_by_group(self.snapshot)
+        valid_cols, invalid_tombstones, valid_tombstones, lastest_update_id, first_is_merge, lastest_merge_update_id  = break_down_cols_by_group(self.snapshot)
         self.valid_cols = valid_cols
         self.invalid_tombstones = invalid_tombstones
         self.valid_tombstones = valid_tombstones
         self.new_update_id = get_current_timeuuid(self.snapshot)
         self.new_version = get_new_version()
+        self.lastest_update_id = lastest_update_id
+        self.first_is_merge = first_is_merge 
+        self.lastest_merge_update_id = lastest_merge_update_id
         arithmetic.print_cols(self.snapshot, self.cols, self.name)
 
     def merge(self):
@@ -207,12 +252,12 @@ class TestHelper(object):
         self.delete_with_invalid_tombstone()
 
     def insert_tombstone(self):
-        merge_insert_tombstone(self.snapshot, self.cols, self.new_version, self.valid_tombstones,
+        merge_insert_tombstone(self.snapshot, self.cols, self.new_version, self.valid_cols,
                                self.name)
 
     def insert_merge(self):
         merge_insert_merge(self.snapshot, self.cols, self.new_version, self.new_update_id,
-                           self.valid_cols,
+                           self.valid_cols, self.lastest_merge_update_id,
                            self.name)
 
     def delete_with_valid_tombstone(self):
@@ -234,4 +279,4 @@ class TestHelper(object):
 
 
 if __name__ == '__main__':
-    unittest.main()
+   unittest.main()

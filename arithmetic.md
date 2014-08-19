@@ -21,9 +21,9 @@ Arithmetic operations is non blocking and it is optimized for update rather than
   1. (cassandra operation) insert records
 
 ##### merge:
-  1. (cassandra operation) normal_rows, tombstone_rows, merge_rows = get rows for sum
+  1. (cassandra operation) normal_rows, tombstone_rows, lastest_merge_rows = get rows for sum
   2. (local code) discard invalid tombstone_rows, invalid_merge rows,  get lastest updateid
-  3. (local code) sum = normal_rows + valid_tombstone_rows + valid_merge_rows
+  3. (local code) sum = normal_rows + valid_tombstone_rows + lastest_merge_rows, records in the left of lastest_merge_rows are not counted
   4. (local code) newversion = generate timeuuid
   5. (cassandra operation) if last record is a merge, skip. insert tombstone for normal + merged rows with newversion. 
   6. (cassandra operation) if previous step is skip, skip this one too. insert merge record with sum and newversion and updateid = lastest updateid,  this operation make tombstone valid
@@ -31,9 +31,9 @@ Arithmetic operations is non blocking and it is optimized for update rather than
   8. (cassandra operation, sometimes) delete invalid tombstone, invalid merge older than 10 mins if there are any, do not send this request if there isnt' any match
 
 ##### sum: single wide row read 
-  1. normal_rows, tombstone_rows, merge_rows = get rows for sum
-  2. discard invalid tombstone_rows, invalid_merge rows
-  3. sum = normal_rows + valid_tombstone_rows + valid_merge_rows
+  1. normal_rows, tombstone_rows, lastest_merge_rows = get rows for sum
+  2. discard invalid tombstone_rows, invalid_merge rows,  get lastest updateid
+  3. sum = normal_rows + valid_tombstone_rows + lastest_merge_rows, records in the left of lastest_merge_rows are not counted
 
 ### Example and usage
 ```
@@ -77,40 +77,40 @@ sum is 6 for these 2 normal record
 : 6 = + 1 + 5
 : After insert merge [(2, 'S', 1, 6)]
 : mem: [(0, 'N', , 1), (1, 'N', , 5)]
-: cas: [(0, 'N', , 1), (0, 'T', 1, 1), (1, 'N', , 5), (1, 'T', 1, 5), (2, 'S', 1, 6)]
+: cas: [(0, 'N', , 1), (0, 'T', 1, 1), (1, 'N', , 5), (1, 'T', 1, 5), (1, 'S', 1, 6)]
 : Skip delete normal, merge with valid tombstone
 : Skip delete invalid, nothing to delete
 : Complete Merge 1
 
 : Start Merge 2
-: mem: [(0, 'N', , 1), (0, 'T', 1, 1), (1, 'N', , 5), (1, 'T', 1, 5), (2, 'S', 1, 6)]
-: cas: [(0, 'N', , 1), (0, 'T', 1, 1), (1, 'N', , 5), (1, 'T', 1, 5), (2, 'S', 1, 6)]
+: mem: [(0, 'N', , 1), (0, 'T', 1, 1), (1, 'N', , 5), (1, 'T', 1, 5), (1, 'S', 1, 6)]
+: cas: [(0, 'N', , 1), (0, 'T', 1, 1), (1, 'N', , 5), (1, 'T', 1, 5), (1, 'S', 1, 6)]
 : Skip insert tombstone because no new record inserted
 : After delete normal, merge with valid tombstone [(0, 'N', , 1), (1, 'N', , 5)]
-: mem: [(0, 'N', , 1), (0, 'T', 1, 1), (1, 'N', , 5), (1, 'T', 1, 5), (2, 'S', 1, 6)]
-: cas: [(0, 'T', 1, 1), (1, 'T', 1, 5), (2, 'S', 1, 6)]
+: mem: [(0, 'N', , 1), (0, 'T', 1, 1), (1, 'N', , 5), (1, 'T', 1, 5), (1, 'S', 1, 6)]
+: cas: [(0, 'T', 1, 1), (1, 'T', 1, 5), (1, 'S', 1, 6)]
 : Skip delete invalid, nothing to delete
 : Complete Merge 2
 
 : Start Merge 3
-: mem: [(0, 'T', 1, 1), (1, 'T', 1, 5), (2, 'S', 1, 6)]
-: cas: [(0, 'T', 1, 1), (1, 'T', 1, 5), (2, 'S', 1, 6)]
+: mem: [(0, 'T', 1, 1), (1, 'T', 1, 5), (1, 'S', 1, 6)]
+: cas: [(0, 'T', 1, 1), (1, 'T', 1, 5), (1, 'S', 1, 6)]
 : Skip insert tombstone because no new record inserted
 : Skip delete normal, merge with valid tombstone
 : After delete invalid tombstone [(0, 'T', 1, 1)]
 : Some invalid tombstone [(1, 'T', 1, 5)] are skipped because they are not old enough
-: mem: [(0, 'T', 1, 1), (1, 'T', 1, 5), (2, 'S', 1, 6)]
-: cas: [(1, 'T', 1, 5), (2, 'S', 1, 6)]
+: mem: [(0, 'T', 1, 1), (1, 'T', 1, 5), (1, 'S', 1, 6)]
+: cas: [(1, 'T', 1, 5), (1, 'S', 1, 6)]
 : Complete Merge 3
 
 : Start Merge 4
-: mem: [(1, 'T', 1, 5), (2, 'S', 1, 6)]
-: cas: [(1, 'T', 1, 5), (2, 'S', 1, 6)]
+: mem: [(1, 'T', 1, 5), (1, 'S', 1, 6)]
+: cas: [(1, 'T', 1, 5), (1, 'S', 1, 6)]
 : Skip insert tombstone because no new record inserted
 : Skip delete normal, merge with valid tombstone
 : After delete invalid tombstone [(1, 'T', 1, 5)]
-: mem: [(1, 'T', 1, 5), (2, 'S', 1, 6)]
-: cas: [(2, 'S', 1, 6)]
+: mem: [(1, 'T', 1, 5), (1, 'S', 1, 6)]
+: cas: [(1, 'S', 1, 6)]
 : Complete Merge 4
 
 

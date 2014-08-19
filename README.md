@@ -140,7 +140,7 @@ ctx.close();//disregard temp data & close context
 ```
 //config node, port, original keyspace, temp keyspace(contains tmp table)
 Configuration.loadConfig("localhost", 9042,"test_keyspace","tx_keyspace");
-Airthmetic atm = new Airthmetic(true);
+Arithmetic atm = new Arithmetic(true);
 int id = 123;
 //increase
 atm.incre("seller_balance", id, "amount", new BigDecimal(1));
@@ -157,7 +157,7 @@ atm.close();
 ```
 //config node, port, original keyspace, temp keyspace(contains tmp table)
 Configuration.loadConfig("localhost", 9042,"test_keyspace","tx_keyspace");
-Airthmetic atm = new Airthmetic(false);
+Arithmetic atm = new Arithmetic(false);
 int id = 123;
 //increase
 atm.incre("seller_balance", id, "amount", new BigDecimal(1));
@@ -182,7 +182,7 @@ CREATE TABLE test_keyspace.seller_balance_complex
 	 ) WITH CLUSTERING ORDER BY (updateid DESC)
 ```
 ```
-Airthmetic atm = new Airthmetic(false);
+Arithmetic atm = new Arithmetic(false);
 String table = "seller_balance_complex";
 Map<String, Object> mapKey = new HashMap<String, Object>();
 String company = "lunex";

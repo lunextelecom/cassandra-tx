@@ -15,7 +15,7 @@ import javax.ws.rs.core.MediaType;
 import com.codahale.metrics.annotation.Timed;
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.BoundStatement;
-import com.lunex.core.cassandra.Airthmetic;
+import com.lunex.core.cassandra.Arithmetic;
 import com.lunex.core.cassandra.Context;
 
 @Path("/testtx")
@@ -38,7 +38,7 @@ public class LoadTestService {
 	try {
 	    String sql = "";
 	    Context ctx = (Context) Context.start();
-	    Airthmetic atm = new Airthmetic(true);
+	    Arithmetic atm = new Arithmetic(true);
 	    sql = "truncate test_keyspace.customer_balance";
 	    ctx.executeNonContext(sql.toString());
 
@@ -211,11 +211,11 @@ public class LoadTestService {
     @Path("/arithmetic")
     @GET
     @Timed
-    public String testAirthMetic(@QueryParam("id") int id,
+    public String testArithmetic(@QueryParam("id") int id,
 	    @QueryParam("type") String type,
 	    @QueryParam("isCommit") Boolean isCommit) {
 	StringBuilder sql = new StringBuilder();
-	Airthmetic atm = new Airthmetic(true);
+	Arithmetic atm = new Arithmetic(true);
 	if (type.equalsIgnoreCase("I")) {
 	    sql.append("select * from test_keyspace.customer where username = ?");
 	    atm.incre("seller_balance", id, "amount", new BigDecimal(1));
@@ -246,7 +246,7 @@ public class LoadTestService {
 	    @QueryParam("isMerge") Boolean isMerge) {
 	// move $ from customer to seller.
 	try {
-	    Airthmetic atm = new Airthmetic(true);
+	    Arithmetic atm = new Arithmetic(true);
 	    atm.incre("customer_balance", customerId, "amount", new BigDecimal(
 		    -amount));
 	    atm.incre("seller_balance", sellerId, "amount", new BigDecimal(
@@ -279,7 +279,7 @@ public class LoadTestService {
 	    @QueryParam("isMerge") Boolean isMerge) {
 	// move $ from fromSellerId to toSellerId.
 	try {
-	    Airthmetic atm = new Airthmetic(true);
+	    Arithmetic atm = new Arithmetic(true);
 	    atm.incre("seller_balance", fromSellerId, "amount", new BigDecimal(
 		    -amount));
 	    atm.incre("seller_balance", toSellerId, "amount", new BigDecimal(
@@ -308,7 +308,7 @@ public class LoadTestService {
     public String sumAll(@QueryParam("cf") String cf) {
 	try {
 	    BigDecimal sum = new BigDecimal(0);
-	    Airthmetic atm = new Airthmetic(true);
+	    Arithmetic atm = new Arithmetic(true);
 	    for (int i = 1; i <= 10; i++) {
 		sum = sum.add(atm.sum(cf, i, "amount"));
 	    }
@@ -326,7 +326,7 @@ public class LoadTestService {
     public String mergeAll(@QueryParam("cf") String cf) {
 	try {
 
-	    Airthmetic atm = new Airthmetic(true);
+	    Arithmetic atm = new Arithmetic(true);
 	    for (int i = 1; i <= 10; i++) {
 		atm.merge(cf, i, "amount");
 	    }
@@ -345,7 +345,7 @@ public class LoadTestService {
 	    @QueryParam("isInit") Boolean isInit) {
 	// increase 0, merge
 	try {
-	    Airthmetic atm = new Airthmetic(true);
+	    Arithmetic atm = new Arithmetic(true);
 	    Context ctx = (Context) Context.start();
 	    if (isInit) {
 		BatchStatement batch = new BatchStatement();

@@ -3,15 +3,15 @@ package com.lunex.test.cassandra;
 import java.math.BigDecimal;
 import java.text.Bidi;
 
-import com.lunex.core.cassandra.Airthmetic;
+import com.lunex.core.cassandra.Arithmetic;
 import com.lunex.core.cassandra.Context;
 
 public class InsertThread implements Runnable {
 
-    private Airthmetic ctx;
+    private Arithmetic ctx;
     private String name;
 
-    public InsertThread(Airthmetic ctx, String name){
+    public InsertThread(Arithmetic ctx, String name){
         this.ctx=ctx;
         this.name = name;
     }

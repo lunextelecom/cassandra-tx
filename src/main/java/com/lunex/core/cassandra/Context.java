@@ -32,26 +32,53 @@ import com.lunex.core.utils.Configuration;
 import com.lunex.core.utils.RowKey;
 import com.lunex.core.utils.Utils;
 
+// TODO: Auto-generated Javadoc
+/**
+ * The Class Context.
+ */
 public class Context implements IContext {
 
+	/** The Constant logger. */
 	private static final Logger logger = LoggerFactory.getLogger(Context.class);
 
+	/** The ctx id. */
 	private String ctxId;
 
+	/** The client. */
 	private ContextFactory client;
 
+	/**
+	 * Start.
+	 *
+	 * @return the IContext
+	 */
 	public static IContext start() {
 		return ContextFactory.start();
 	}
 
+	/**
+	 * Start.
+	 *
+	 * @param contextId
+	 * @return the Context
+	 */
 	public static IContext start(String contextId) {
 		return ContextFactory.start(contextId);
 	}
 
+	/**
+	 * Gets the context.
+	 *
+	 * @param contextId the context id
+	 * @return the context
+	 */
 	public static IContext getContext(String contextId) {
 		return ContextFactory.getContext(contextId);
 	}
 
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IContext#commit()
+	 */
 	public void commit() {
 		logger.info("context commit");
 		Set<String> setCfTxChanged = getTablesChange();
@@ -100,6 +127,13 @@ public class Context implements IContext {
 
 	}
 
+	/**
+	 * Commit others statement.
+	 *
+	 * @param cftx : temporary table 
+	 * @param row 
+	 * @return the bound statement
+	 */
 	private BoundStatement commitOthersStatement(String cftx, final Row row) {
 		StringBuilder statement;
 		StringBuilder valueSql;
@@ -160,6 +194,13 @@ public class Context implements IContext {
 		return null;
 	}
 
+	/**
+	 * Commit delete statement.
+	 *
+	 * @param cftx : temporary table
+	 * @param row 
+	 * @return the bound statement
+	 */
 	private BoundStatement commitDeleteStatement(String cftx, final Row row) {
 		StringBuilder statement;
 		// get original table from tmp table: customer_91ec1f93 -> customer
@@ -197,6 +238,11 @@ public class Context implements IContext {
 		}
 	}
 
+	/**
+	 * Discard context.
+	 *
+	 * @param isClosed = True: delete contextId in database 
+	 */
 	private void discardContext(Boolean isClosed) {
 		// rollback all changes, delete tmp table has cstx_id_ = ctxId
 		logger.info("context rollback");
@@ -234,29 +280,52 @@ public class Context implements IContext {
 		}
 	}
 
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IContext#rollback()
+	 */
 	public void rollback() {
 		discardContext(false);
 	}
 
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IContext#close()
+	 */
 	public void close() {
 		discardContext(true);
 	}
 
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IContext#execute(java.lang.String, java.lang.Object[])
+	 */
 	public List<Row> execute(String sql, Object... args) {
-		return privateExecute(sql, false, args);
+		return execute(sql, false, args);
 
 	}
 
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IContext#execute4Arithmetic(java.lang.String, java.lang.Object[])
+	 */
 	public void execute4Arithmetic(String sql, Object... args) {
-		privateExecute(sql, true, args);
+		execute(sql, true, args);
 
 	}
 
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IContext#executeNonContext(java.lang.String, java.lang.Object[])
+	 */
 	public ResultSet executeNonContext(String sql, Object... arguments) {
 		return client.getSession().execute(sql, arguments);
 	}
 
-	private List<Row> privateExecute(String sql, Boolean isArith,
+	/**
+	 * execute.
+	 *
+	 * @param sql the sql
+	 * @param isArith : execute arithmetic record
+	 * @param args 
+	 * @return the list< row>
+	 */
+	private List<Row> execute(String sql, Boolean isArith,
 			Object... args) {
 		logger.info("context executing");
 		List<Row> res = null;
@@ -314,6 +383,14 @@ public class Context implements IContext {
 
 	}
 
+	/**
+	 * Execute update statement.
+	 *
+	 * @param sql 
+	 * @param info 
+	 * @param isArith
+	 * @param args 
+	 */
 	private void executeUpdateStatement(String sql, Update info,
 			Boolean isArith, Object... args) {
 		logger.info("execute update statement");
@@ -401,6 +478,16 @@ public class Context implements IContext {
 		executeBatch(batch, true);
 	}
 
+	/**
+	 * Executes select statement.
+	 *
+	 * @param contextId the context id
+	 * @param sql the sql
+	 * @param tableName the table name
+	 * @param isArith the is arith
+	 * @param args the args
+	 * @return the list< row>
+	 */
 	private List<Row> executesSelectStatement(String contextId, String sql,
 			String tableName, Boolean isArith, Object... args) {
 		logger.info("execute select statement");
@@ -470,6 +557,14 @@ public class Context implements IContext {
 		return res;
 	}
 
+	/**
+	 * Execute delete statement.
+	 *
+	 * @param contextId the context id
+	 * @param sql the sql
+	 * @param info the info
+	 * @param args the args
+	 */
 	private void executeDeleteStatement(String contextId, String sql,
 			Delete info, Object... args) {
 
@@ -527,6 +622,14 @@ public class Context implements IContext {
 		}
 	}
 
+	/**
+	 * Execute insert statement.
+	 *
+	 * @param contextId the context id
+	 * @param info the info
+	 * @param isArith the is arith
+	 * @param args the args
+	 */
 	private void executeInsertStatement(String contextId, Insert info,
 			Boolean isArith, Object... args) {
 		logger.info("execute insert statement");
@@ -577,6 +680,12 @@ public class Context implements IContext {
 		executeNonContext(insertSql.toString(), params.toArray());
 	}
 
+	/**
+	 * Update tables change.
+	 *
+	 * @param input the input
+	 * @param tableName the table name
+	 */
 	private void updateTablesChange(Set<String> input, String tableName) {
 		if (!input.contains(tableName)) {
 			Set<String> lstTable = new HashSet<String>();
@@ -602,6 +711,11 @@ public class Context implements IContext {
 		}
 	}
 
+	/**
+	 * Gets the tables change.
+	 *
+	 * @return the tables change
+	 */
 	private Set<String> getTablesChange() {
 		Set<String> res = new HashSet<String>();
 		StringBuilder sql = new StringBuilder("select * from "
@@ -624,6 +738,9 @@ public class Context implements IContext {
 		return res;
 	}
 
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IContext#prepareStatement(java.lang.String, java.util.List)
+	 */
 	public BoundStatement prepareStatement(String sql, List<Object> params) {
 		if (params == null) {
 			params = new ArrayList<Object>();
@@ -635,6 +752,9 @@ public class Context implements IContext {
 		return ps;
 	}
 
+	/* (non-Javadoc)
+	 * @see com.lunex.core.cassandra.IContext#executeBatch(com.datastax.driver.core.BatchStatement, java.lang.Boolean)
+	 */
 	public void executeBatch(BatchStatement batch, Boolean forceRun) {
 		if (forceRun) {
 			if (batch.getStatements() != null
@@ -652,19 +772,39 @@ public class Context implements IContext {
 		}
 	}
 
-	// get,set
+	
+	/**
+	 * Gets the ctx id.
+	 *
+	 * @return the ctx id
+	 */
 	public String getCtxId() {
 		return ctxId;
 	}
 
+	/**
+	 * Sets the ctx id.
+	 *
+	 * @param ctxId the ctx id
+	 */
 	public void setCtxId(String ctxId) {
 		this.ctxId = ctxId;
 	}
 
+	/**
+	 * Gets the client.
+	 *
+	 * @return the client
+	 */
 	public ContextFactory getClient() {
 		return client;
 	}
 
+	/**
+	 * Sets the client.
+	 *
+	 * @param client the client
+	 */
 	public void setClient(ContextFactory client) {
 		this.client = client;
 	}

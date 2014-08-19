@@ -19,8 +19,8 @@ public interface IArithmetic {
 	/**
 	 * Sum.
 	 *
-	 * @param cf the cf
-	 * @param key the key
+	 * @param cf : column family
+	 * @param key : key of row
 	 *  @param column : name of column for sum
 	 * @return the big decimal
 	 */

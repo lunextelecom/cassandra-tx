@@ -101,6 +101,7 @@ public class Arithmetic implements IArithmetic {
 			}else{
 				ctx.executeNonContext(statement.toString(),params.toArray());
 			}
+			logger.debug(statement.toString());
 		} catch (Exception ex) {
 			logger.info("incre method failed" + ex.getMessage());
 			throw new UnsupportedOperationException("incre method failed" + ex.getMessage());
@@ -122,6 +123,7 @@ public class Arithmetic implements IArithmetic {
 			UUID lastestUpdateid = null;
 			UUID lastestMergeUUID = null;
 			ResultSet resultSet = ctx.executeNonContext(selectSql.toString(), params.toArray());
+			logger.debug(selectSql.toString());
 			Map<UUID, Row> mapNormal = new HashMap<UUID, Row>();
 			Map<UUID, Row> mapMergeUUID = new HashMap<UUID, Row>();
 			Map<String, Row> mapMergeVer = new HashMap<String, Row>();
@@ -278,6 +280,7 @@ public class Arithmetic implements IArithmetic {
 			List<Object> params = new ArrayList<Object>();
 			final StringBuilder selectSql = createSelectStatement(cf, key, params);
 			List<Row> resultSet = ctx.execute(selectSql.toString(), params.toArray());
+			logger.debug(selectSql.toString());
 			Map<UUID, Row> mapNormal = new HashMap<UUID, Row>();
 			Map<UUID, Row> mapMergeUUID = new HashMap<UUID, Row>();
 			Map<String, Row> mapMergeVer = new HashMap<String, Row>();
@@ -471,6 +474,7 @@ public class Arithmetic implements IArithmetic {
 					}
 				}
 				BoundStatement ps =ctx.prepareStatement(statement.toString(), params);
+				logger.debug(statement.toString());
 				batch.add(ps);
 				ctx.executeBatch(batch, false);
 			}
@@ -535,6 +539,7 @@ public class Arithmetic implements IArithmetic {
 					}
 					
 					BoundStatement ps = ctx.prepareStatement(statement.toString(),params);
+					logger.debug(statement.toString());
 					batch.add(ps);
 					ctx.executeBatch(batch, false);
 				}
@@ -599,6 +604,7 @@ public class Arithmetic implements IArithmetic {
 			params.add(amount);
 			statement.append(valueSql);
 			ctx.executeNonContext(statement.toString(), params.toArray());
+			logger.debug(statement.toString());
 		} catch (Exception ex) {
 			throw new UnsupportedOperationException("insertMergeRow method failed"+ ". Message :" + ex.getMessage());
 		}

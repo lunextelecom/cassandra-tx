@@ -93,6 +93,7 @@ public class Context implements IContext {
 						+ " WHERE cstx_id_ = ?");
 				final ResultSet results = executeNonContext(query.toString(),
 						UUID.fromString(ctxId));
+				logger.debug(query.toString());
 				if (results != null) {
 					while (!results.isExhausted()) {
 						final Row row = results.one();
@@ -182,6 +183,7 @@ public class Context implements IContext {
 			try {
 				BoundStatement ps = prepareStatement(statement.toString(),
 						params);
+				logger.debug(statement.toString());
 				return ps;
 			} catch (Exception e) {
 				logger.error("commit failed, statement : "
@@ -228,6 +230,7 @@ public class Context implements IContext {
 		}
 		try {
 			BoundStatement ps = prepareStatement(statement.toString(), params);
+			logger.debug(statement.toString());
 			return ps;
 		} catch (Exception e) {
 			logger.error("commit failed, statement : " + statement.toString()
@@ -250,14 +253,15 @@ public class Context implements IContext {
 		BatchStatement batch = new BatchStatement();
 		BoundStatement bs = null;
 		List<Object> params;
+		String statement = "";
 		if (setCfTxChanged != null && !setCfTxChanged.isEmpty()) {
 			for (String cf : setCfTxChanged) {
 				try {
 					params = new ArrayList<Object>();
 					params.add(UUID.fromString(ctxId));
-					bs = prepareStatement(
-							"delete from " + Utils.getFullTXCF(cf)
-									+ " where cstx_id_ = ?", params);
+					statement = "delete from " + Utils.getFullTXCF(cf) + " where cstx_id_ = ?"; 
+					bs = prepareStatement(statement, params);
+					logger.debug(statement);
 					if (bs != null) {
 						batch.add(bs);
 					}
@@ -269,9 +273,9 @@ public class Context implements IContext {
 			if (isClosed) {
 				params = new ArrayList<Object>();
 				params.add(UUID.fromString(ctxId));
-				bs = prepareStatement(
-						"delete from " + Utils.getFullTXCF("cstx_context")
-								+ " where contextid = ?", params);
+				statement = "delete from " + Utils.getFullTXCF("cstx_context") + " where contextid = ?";
+				bs = prepareStatement(statement, params);
+				logger.debug(statement);
 				if (bs != null) {
 					batch.add(bs);
 				}
@@ -426,6 +430,7 @@ public class Context implements IContext {
 		selectSql = selectSql.replaceFirst("update ", "select * from ");
 		List<Row> lstRow = executesSelectStatement(ctxId, selectSql, orgName,
 				isArith, args);
+		logger.debug(selectSql);
 		// 2. insert into tmp table
 		BatchStatement batch = new BatchStatement();
 		BoundStatement bs = null;
@@ -455,6 +460,7 @@ public class Context implements IContext {
 				valueSql.append(")");
 				insertSql.append(valueSql);
 				bs = prepareStatement(insertSql.toString(), params);
+				logger.debug(insertSql.toString());
 				if (bs != null) {
 					batch.add(bs);
 				}
@@ -472,6 +478,7 @@ public class Context implements IContext {
 		}
 		params.add(UUID.fromString(ctxId));
 		bs = prepareStatement(updateSql.toString(), params);
+		logger.debug(updateSql.toString());
 		if (bs != null) {
 			batch.add(bs);
 		}
@@ -526,6 +533,7 @@ public class Context implements IContext {
 			params.add(args[i]);
 		}
 		results = executeNonContext(txSql.toString(), params.toArray());
+		logger.debug(txSql.toString());
 		Map<RowKey, Row> mapRow = new HashMap<RowKey, Row>();
 		if (results != null) {
 			while (!results.isExhausted()) {
@@ -612,6 +620,7 @@ public class Context implements IContext {
 					valueSql.append(")");
 					insertSql.append(valueSql);
 					bs = prepareStatement(insertSql.toString(), params);
+					logger.debug(insertSql.toString());
 					if (bs != null) {
 						batch.add(bs);
 					}
@@ -678,6 +687,7 @@ public class Context implements IContext {
 		insertSql = insertSql.replace(insertSql.lastIndexOf(")"),
 				insertSql.length(), ",?,?)");
 		executeNonContext(insertSql.toString(), params.toArray());
+		logger.debug(insertSql.toString());
 	}
 
 	/**
@@ -701,6 +711,7 @@ public class Context implements IContext {
 				params.add(lstTable);
 				params.add(UUID.fromString(ctxId));
 				executeNonContext(sql.toString(), params.toArray());
+				logger.debug(sql.toString());
 			} catch (Exception e) {
 				logger.error("updateTablesChange failed :" + sql
 						+ ". Message :" + e.getMessage());
@@ -725,6 +736,7 @@ public class Context implements IContext {
 			params.add(UUID.fromString(ctxId));
 			ResultSet resultSet = executeNonContext(sql.toString(),
 					params.toArray());
+			logger.debug(sql.toString());
 			if (resultSet != null && !resultSet.isExhausted()) {
 				final Row row = resultSet.one();
 				res = row.getSet("lstcfname", String.class);

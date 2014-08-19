@@ -130,6 +130,7 @@ public class ContextFactory {
 
 						// create tx cf
 						session.execute(sql.toString());
+						logger.debug(sql.toString());
 					}
 					mapOrgTX.put(child.getName(), txName);
 
@@ -144,6 +145,7 @@ public class ContextFactory {
 				// create cstx_context in tx_keyspace if not exists
 				String sql = "CREATE TABLE " + txKeyspace + ".cstx_context (contextid uuid, lstcfname set<text>, updateid timeuuid, PRIMARY KEY (contextid))";
 				session.execute(sql);
+				logger.debug(sql.toString());
 			}
 		}
 		session.close();
@@ -288,6 +290,7 @@ public class ContextFactory {
 			List<Object> params = new ArrayList<Object>();
 			params.add(UUID.fromString(contextId));
 			client.getSession().execute(sql.toString(), params.toArray());
+			logger.debug(sql.toString());
 		} catch (Exception e) {
 			logger.error("insertContextRecord failed :" + sql + ". Message :"
 					+ e.getMessage());
@@ -309,6 +312,7 @@ public class ContextFactory {
 		try {
 			ResultSet resultSet = ContextFactory.getInstance().getSession()
 					.execute(sql.toString(), UUID.fromString(contextId));
+			logger.debug(sql.toString());
 			if (resultSet != null && !resultSet.isExhausted()) {
 				if (!resultSet.isExhausted()) {
 					return true;

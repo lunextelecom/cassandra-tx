@@ -189,13 +189,20 @@ public class ContextFactory {
 
 	/**
 	 * Start.
-	 *
+	 * new context  
 	 * @return IContext
 	 */
 	public static IContext start() {
 		try {
-			String ctxId = UUID.randomUUID().toString();
-			return getContext(ctxId);
+			ContextFactory client = ContextFactory.getInstance();
+			String contextId = UUID.randomUUID().toString();
+			contextId = Utils.generateContextIdFromString(contextId);
+			Context ctx = new Context();
+			ctx.setClient(client);
+			ctx.setCtxId(contextId);
+			insertContextRecord(contextId, client);
+			
+			return ctx;
 		} catch (Exception e) {
 			logger.error("Can't connect node: " + Configuration.getNode()
 					+ " port :" + Configuration.getPort() + " keyspace:"
@@ -210,7 +217,7 @@ public class ContextFactory {
 
 	/**
 	 * Start.
-	 *
+	 * start context with contextId, if this id already exist, return error
 	 * @param contextId the context id
 	 * @return the IContext
 	 */
@@ -246,7 +253,7 @@ public class ContextFactory {
 
 	/**
 	 * Gets the context.
-	 *
+	 * Access existing context, if doesn't exist, return error  
 	 * @param contextId 
 	 * @return the context
 	 */
@@ -256,16 +263,14 @@ public class ContextFactory {
 			ContextFactory client = ContextFactory.getInstance();
 			contextId = Utils.generateContextIdFromString(contextId);
 			Boolean isExist = isExistContext(contextId);
-			if (isExist) {
-				logger.error("contextId :" + oldContext + " is existed");
+			if (!isExist) {
+				logger.error("contextId :" + oldContext + " does not exist");
 				throw new UnsupportedOperationException("contextId :"
-						+ oldContext + " is existed");
+						+ oldContext + " does not exist");
 			}
 			Context ctx = new Context();
 			ctx.setClient(client);
 			ctx.setCtxId(contextId);
-			insertContextRecord(contextId, client);
-
 			return ctx;
 		} catch (Exception e) {
 			logger.error("get context:" + oldContext + " failed"

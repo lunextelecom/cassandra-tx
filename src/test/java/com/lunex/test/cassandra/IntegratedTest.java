@@ -14,7 +14,7 @@ import com.datastax.driver.core.Row;
 import com.lunex.core.cassandra.Arithmetic;
 import com.lunex.core.cassandra.Context;
 
-public class IntegratedTest extends ContextTest{
+public class IntegratedTest extends BaseTest{
     /**
      * 
      */

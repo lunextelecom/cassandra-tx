@@ -15,7 +15,7 @@ import com.lunex.core.cassandra.Arithmetic;
 import com.lunex.core.cassandra.Context;
 
 
-public class TransactionTest extends ContextTest{
+public class TransactionTest extends BaseTest{
    
     @Test
     public void testSelect(){

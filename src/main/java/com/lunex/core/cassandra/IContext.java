@@ -21,14 +21,6 @@ public interface IContext {
 	 */
 	List<Row> execute(String statement, Object... arguments);
 
-//	/**
-//	 * Execute for arithmetic.: do not use this function, it is only used in Arithmetic class
-//	 *
-//	 * @param statement
-//	 * @param arguments
-//	 */
-//	void execute4Arithmetic(String statement, Object... arguments);
-
   /**
 	 * Commit.
 	 */

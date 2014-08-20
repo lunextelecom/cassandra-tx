@@ -12,7 +12,7 @@ import com.lunex.core.cassandra.Arithmetic;
 import com.lunex.core.cassandra.Context;
 
 
-public class ArithmeticTest extends ContextTest {
+public class ArithmeticTest extends BaseTest {
 
 	@Test
     public void testIncre(){

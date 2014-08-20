@@ -1,11 +1,11 @@
 package com.lunex.core.cassandra;
 
-import java.util.List;
-
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
+
+import java.util.List;
 
 /**
  * The Interface IContext.
@@ -21,15 +21,15 @@ public interface IContext {
 	 */
 	List<Row> execute(String statement, Object... arguments);
 
-	/**
-	 * Execute for arithmetic.: do not use this function, it is only used in Arithmetic class
-	 *
-	 * @param statement 
-	 * @param arguments
-	 */
-	void execute4Arithmetic(String statement, Object... arguments);
-	
-	/**
+//	/**
+//	 * Execute for arithmetic.: do not use this function, it is only used in Arithmetic class
+//	 *
+//	 * @param statement
+//	 * @param arguments
+//	 */
+//	void execute4Arithmetic(String statement, Object... arguments);
+
+  /**
 	 * Commit.
 	 */
 	void commit();
@@ -51,9 +51,9 @@ public interface IContext {
 	 * @param arguments 
 	 * @return the result set
 	 */
-	ResultSet executeNonContext(String statement, Object... arguments);
-	
-	/**
+        ResultSet executeNoTx(String statement, Object... arguments);
+
+  /**
 	 * Prepare statement.
 	 *
 	 * @param statement 

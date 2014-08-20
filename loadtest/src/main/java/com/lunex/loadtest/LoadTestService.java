@@ -1,5 +1,11 @@
 package com.lunex.loadtest;
 
+import com.codahale.metrics.annotation.Timed;
+import com.datastax.driver.core.BatchStatement;
+import com.datastax.driver.core.BoundStatement;
+import com.lunex.core.cassandra.Arithmetic;
+import com.lunex.core.cassandra.Context;
+
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,12 +17,6 @@ import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
-
-import com.codahale.metrics.annotation.Timed;
-import com.datastax.driver.core.BatchStatement;
-import com.datastax.driver.core.BoundStatement;
-import com.lunex.core.cassandra.Arithmetic;
-import com.lunex.core.cassandra.Context;
 
 @Path("/testtx")
 @Produces(MediaType.APPLICATION_JSON)
@@ -40,19 +40,19 @@ public class LoadTestService {
 	    Context ctx = (Context) Context.start();
 	    Arithmetic atm = new Arithmetic(true);
 	    sql = "truncate test_keyspace.customer_balance";
-	    ctx.executeNonContext(sql.toString());
+          ctx.executeNoTx(sql.toString());
 
 	    sql = "truncate test_keyspace.seller_balance";
-	    ctx.executeNonContext(sql.toString());
+          ctx.executeNoTx(sql.toString());
 
 	    sql = "truncate test_keyspace.customer";
-	    ctx.executeNonContext(sql.toString());
+          ctx.executeNoTx(sql.toString());
 
 	    // create 10 customer
 	    for (int i = 1; i <= 10; i++) {
 		sql = "insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)";
-		ctx.executeNonContext(sql.toString(), i + "", i + "", i + "", 1);
-	    }
+              ctx.executeNoTx(sql.toString(), i + "", i + "", i + "", 1);
+            }
 	    //
 	    // create 10 seller_balance
 	    for (int i = 1; i <= 10; i++) {
@@ -93,8 +93,8 @@ public class LoadTestService {
 	try {
 	    String sql = "delete from test_keyspace.seller_balance where id = ?";
 	    Context ctx = (Context) Context.start();
-	    ctx.executeNonContext(sql, id);
-	    BatchStatement batch = new BatchStatement();
+          ctx.executeNoTx(sql, id);
+          BatchStatement batch = new BatchStatement();
 	    sql = "insert into test_keyspace.seller_balance(id ,updateid ,type , version , amount ) values(?,now(),'N','',1)";
 	    // create 100 seller_balance
 	    for (int i = 1; i <= 100; i++) {
@@ -188,21 +188,21 @@ public class LoadTestService {
 	} else {
 	    if (crud.equalsIgnoreCase("S")) {
 		sql.append("select * from test_keyspace.customer where username = ?");
-		ctx.executeNonContext(sql.toString(), username);
-	    } else if (crud.equalsIgnoreCase("I")) {
+              ctx.executeNoTx(sql.toString(), username);
+            } else if (crud.equalsIgnoreCase("I")) {
 		sql.append("insert into test_keyspace.customer(username, firstname, lastname, age) values(?,?,?,?)");
-		ctx.executeNonContext(sql.toString(), UUID.randomUUID()
-			.toString(), UUID.randomUUID().toString(), UUID
-			.randomUUID().toString(), 1);
-	    } else if (crud.equalsIgnoreCase("U")) {
+              ctx.executeNoTx(sql.toString(), UUID.randomUUID()
+                  .toString(), UUID.randomUUID().toString(), UUID
+                                  .randomUUID().toString(), 1);
+            } else if (crud.equalsIgnoreCase("U")) {
 		// update
 		sql.append("update test_keyspace.customer set age = 26 where username = ?");
-		ctx.executeNonContext(sql.toString(), username);
-	    } else if (crud.equalsIgnoreCase("D")) {
+              ctx.executeNoTx(sql.toString(), username);
+            } else if (crud.equalsIgnoreCase("D")) {
 		// update
 		sql.append("delete from test_keyspace.customer where username = ?");
-		ctx.executeNonContext(sql.toString(), username);
-	    }
+              ctx.executeNoTx(sql.toString(), username);
+            }
 	    ctx.close();
 	}
 	return "{error:false}";

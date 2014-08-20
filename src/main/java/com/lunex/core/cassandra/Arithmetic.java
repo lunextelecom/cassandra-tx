@@ -1,16 +1,5 @@
 package com.lunex.core.cassandra;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.ColumnMetadata;
@@ -20,6 +9,17 @@ import com.datastax.driver.core.TableMetadata;
 import com.lunex.core.utils.Configuration;
 import com.lunex.core.utils.RowKey;
 import com.lunex.core.utils.Utils;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * The Class Arithmetic.
@@ -99,8 +99,8 @@ public class Arithmetic implements IArithmetic {
 			if(isUseTransaction){
 				ctx.execute4Arithmetic(statement.toString(),params.toArray());
 			}else{
-				ctx.executeNonContext(statement.toString(),params.toArray());
-			}
+                          ctx.executeNoTx(statement.toString(), params.toArray());
+                        }
 			logger.debug(statement.toString());
 		} catch (Exception ex) {
 			logger.info("incre method failed" + ex.getMessage());
@@ -122,8 +122,9 @@ public class Arithmetic implements IArithmetic {
 			final StringBuilder selectSql = createSelectStatement(cf, key, params);
 			UUID lastestUpdateid = null;
 			UUID lastestMergeUUID = null;
-			ResultSet resultSet = ctx.executeNonContext(selectSql.toString(), params.toArray());
-			logger.debug(selectSql.toString());
+                  ResultSet resultSet = ctx.executeNoTx(selectSql.toString(),
+                                                        params.toArray());
+                  logger.debug(selectSql.toString());
 			Map<UUID, Row> mapNormal = new HashMap<UUID, Row>();
 			Map<UUID, Row> mapMergeUUID = new HashMap<UUID, Row>();
 			Map<String, Row> mapMergeVer = new HashMap<String, Row>();
@@ -603,8 +604,8 @@ public class Arithmetic implements IArithmetic {
 			params.add(version);
 			params.add(amount);
 			statement.append(valueSql);
-			ctx.executeNonContext(statement.toString(), params.toArray());
-			logger.debug(statement.toString());
+                  ctx.executeNoTx(statement.toString(), params.toArray());
+                  logger.debug(statement.toString());
 		} catch (Exception ex) {
 			throw new UnsupportedOperationException("insertMergeRow method failed"+ ". Message :" + ex.getMessage());
 		}

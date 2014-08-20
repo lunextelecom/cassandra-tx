@@ -1,13 +1,14 @@
 package com.lunex.core.cassandra;
 
-import java.io.StringReader;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import com.datastax.driver.core.BatchStatement;
+import com.datastax.driver.core.BoundStatement;
+import com.datastax.driver.core.ColumnMetadata;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.Row;
+import com.datastax.driver.core.TableMetadata;
+import com.lunex.core.utils.Configuration;
+import com.lunex.core.utils.RowKey;
+import com.lunex.core.utils.Utils;
 
 import net.sf.jsqlparser.expression.Function;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
@@ -22,15 +23,14 @@ import net.sf.jsqlparser.statement.update.Update;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datastax.driver.core.BatchStatement;
-import com.datastax.driver.core.BoundStatement;
-import com.datastax.driver.core.ColumnMetadata;
-import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.Row;
-import com.datastax.driver.core.TableMetadata;
-import com.lunex.core.utils.Configuration;
-import com.lunex.core.utils.RowKey;
-import com.lunex.core.utils.Utils;
+import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 // TODO: Auto-generated Javadoc
 /**
@@ -91,9 +91,9 @@ public class Context implements IContext {
 				// get data from tmp table
 				query.append("SELECT * from " + Utils.getFullTXCF(cftx)
 						+ " WHERE cstx_id_ = ?");
-				final ResultSet results = executeNonContext(query.toString(),
-						UUID.fromString(ctxId));
-				logger.debug(query.toString());
+                          final ResultSet results = executeNoTx(query.toString(),
+                                                                UUID.fromString(ctxId));
+                          logger.debug(query.toString());
 				if (results != null) {
 					while (!results.isExhausted()) {
 						final Row row = results.one();
@@ -309,16 +309,16 @@ public class Context implements IContext {
 	/* (non-Javadoc)
 	 * @see com.lunex.core.cassandra.IContext#execute4Arithmetic(java.lang.String, java.lang.Object[])
 	 */
-	public void execute4Arithmetic(String sql, Object... args) {
-		execute(sql, true, args);
+        public void execute4Arithmetic(String sql, Object... args) {
+          execute(sql, true, args);
 
 	}
 
 	/* (non-Javadoc)
-	 * @see com.lunex.core.cassandra.IContext#executeNonContext(java.lang.String, java.lang.Object[])
+         * @see com.lunex.core.cassandra.IContext#executeNoTx(java.lang.String, java.lang.Object[])
 	 */
-	public ResultSet executeNonContext(String sql, Object... arguments) {
-		return client.getSession().execute(sql, arguments);
+        public ResultSet executeNoTx(String sql, Object... arguments) {
+          return client.getSession().execute(sql, arguments);
 	}
 
 	/**
@@ -506,8 +506,8 @@ public class Context implements IContext {
 		 */
 
 		// 1. get data from original table
-		ResultSet results = executeNonContext(sql, args);
-		List<Row> lstOrg = new ArrayList<Row>();
+          ResultSet results = executeNoTx(sql, args);
+          List<Row> lstOrg = new ArrayList<Row>();
 		if (results != null) {
 			while (!results.isExhausted()) {
 				final Row row = results.one();
@@ -532,8 +532,8 @@ public class Context implements IContext {
 		for (int i = 0; i < args.length; i++) {
 			params.add(args[i]);
 		}
-		results = executeNonContext(txSql.toString(), params.toArray());
-		logger.debug(txSql.toString());
+          results = executeNoTx(txSql.toString(), params.toArray());
+          logger.debug(txSql.toString());
 		Map<RowKey, Row> mapRow = new HashMap<RowKey, Row>();
 		if (results != null) {
 			while (!results.isExhausted()) {
@@ -586,7 +586,7 @@ public class Context implements IContext {
 		// 1. select data from original table
 		sql = sql.toLowerCase();
 		sql = sql.replaceFirst("delete ", "select * ");
-		final ResultSet results = executeNonContext(sql, args);
+          final ResultSet results = executeNoTx(sql, args);
 
 		// 2. insert into tmp table with cstx_deleted_ = true
 		BatchStatement batch = new BatchStatement();
@@ -686,8 +686,8 @@ public class Context implements IContext {
 		}
 		insertSql = insertSql.replace(insertSql.lastIndexOf(")"),
 				insertSql.length(), ",?,?)");
-		executeNonContext(insertSql.toString(), params.toArray());
-		logger.debug(insertSql.toString());
+          executeNoTx(insertSql.toString(), params.toArray());
+          logger.debug(insertSql.toString());
 	}
 
 	/**
@@ -710,8 +710,8 @@ public class Context implements IContext {
 				List<Object> params = new ArrayList<Object>();
 				params.add(lstTable);
 				params.add(UUID.fromString(ctxId));
-				executeNonContext(sql.toString(), params.toArray());
-				logger.debug(sql.toString());
+                          executeNoTx(sql.toString(), params.toArray());
+                          logger.debug(sql.toString());
 			} catch (Exception e) {
 				logger.error("updateTablesChange failed :" + sql
 						+ ". Message :" + e.getMessage());
@@ -734,9 +734,9 @@ public class Context implements IContext {
 		try {
 			List<Object> params = new ArrayList<Object>();
 			params.add(UUID.fromString(ctxId));
-			ResultSet resultSet = executeNonContext(sql.toString(),
-					params.toArray());
-			logger.debug(sql.toString());
+                  ResultSet resultSet = executeNoTx(sql.toString(),
+                                                    params.toArray());
+                  logger.debug(sql.toString());
 			if (resultSet != null && !resultSet.isExhausted()) {
 				final Row row = resultSet.one();
 				res = row.getSet("lstcfname", String.class);
